@@ -1,0 +1,33 @@
+# Build output
+build/
+build-*/
+
+# Engine is reached via a LOCAL directory junction, never committed.
+# Recreate after a fresh clone (from this repo root):
+#   cmd:  mklink /J segagenesisrecomp ..\segagenesisrecomp
+/segagenesisrecomp
+
+# ROMs / dumps — never commit (canonical dump stays out of tree).
+# The USA ROM uses the .md Mega Drive extension; ignore it by name so
+# real *.md docs (DEVELOPMENT.md, README.md) are still tracked.
+*.bin
+*.gen
+*.smd
+/Rocket Knight Adventures (USA).md
+/Rocket Knight Adventures (E).bin
+
+# Runtime / debug artifacts
+*.srm
+*.wav
+*.png
+*.log
+run.err
+run.out
+settings.ini
+rom.cfg
+debug.ini
+dispatch_misses.log
+
+# Python
+__pycache__/
+*.pyc
