@@ -2,10 +2,10 @@
 build/
 build-*/
 
-# Engine is reached via a LOCAL directory junction, never committed.
-# Recreate after a fresh clone (from this repo root):
-#   cmd:  mklink /J segagenesisrecomp ..\segagenesisrecomp
-/segagenesisrecomp
+# Local-dev engine override (see scripts/link-engine.*): a junction to the
+# shared workspace engine checkout. The COMMITTED engine reference is the
+# `segagenesisrecomp` submodule; engine-local, when present, wins in CMake.
+engine-local/
 
 # ROMs / dumps — never commit (canonical dump stays out of tree).
 # The USA ROM uses the .md Mega Drive extension; ignore it by name so
@@ -31,3 +31,7 @@ dispatch_misses.log
 # Python
 __pycache__/
 *.pyc
+
+# Release packaging output
+release/*.zip
+build-release/

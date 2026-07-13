@@ -1,0 +1,4 @@
+[submodule "segagenesisrecomp"]
+	path = segagenesisrecomp
+	url = https://github.com/mstan/segagenesisrecomp.git
+	branch = feat/rka-oracle-parity
