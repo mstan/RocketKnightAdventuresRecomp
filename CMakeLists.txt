@@ -125,14 +125,15 @@ if(WIN32)
 endif()
 
 # add_recomp_mode(<target> <prefix> <game_dir> <rom> <native_port> <oracle_port>)
+include("${RECOMP_ROOT}/cmake/GenesisRecompGenerated.cmake")
 function(add_recomp_mode TARGET PREFIX GAME_DIR ROM PORT_NATIVE PORT_ORACLE)
     set(GAME "${RECOMP_ROOT}/${GAME_DIR}")
-    set(GEN  "${GAME}/generated")
+    genesisrecomp_add_generated_sources(
+        GENERATED_SOURCES "${PREFIX}" "${GAME_DIR}" "${ROM}"
+        REVERSE_DEBUG "${SONIC_REVERSE_DEBUG}")
     set(SHARED_SRC
         ${RUNNER_SOURCES}
-        "${GEN}/${PREFIX}_full.c"
-        "${GEN}/${PREFIX}_dispatch.c"
-        "${GEN}/${PREFIX}_layout.c"
+        ${GENERATED_SOURCES}
         "${GAME}/${PREFIX}_spec.c"
     )
     set(INCLUDES_NATIVE
@@ -155,6 +156,7 @@ function(add_recomp_mode TARGET PREFIX GAME_DIR ROM PORT_NATIVE PORT_ORACLE)
     )
 
     add_executable(${TARGET} ${SHARED_SRC} ${OWN_BACKEND_SOURCES} ${NATIVE_FLOOR_SOURCES})
+    add_dependencies(${TARGET} ${GENERATED_SOURCES_TARGET})
     target_compile_definitions(${TARGET} PRIVATE
         INCLUDE_GENERATED_CODE=1 ENABLE_RECOMPILED_CODE=1 OWN_BACKEND=1
         DEFAULT_DEBUG_PORT=${PORT_NATIVE}
@@ -164,6 +166,7 @@ function(add_recomp_mode TARGET PREFIX GAME_DIR ROM PORT_NATIVE PORT_ORACLE)
     add_executable(${TARGET}_oracle ${SHARED_SRC}
         "${RUNNER_ROOT}/hybrid.c" "${GAME}/${PREFIX}_hybrid_table.c"
         "${RUNNER_ROOT}/hybrid_jmp.c" "${RUNNER_ROOT}/oracle_trace.c")
+    add_dependencies(${TARGET}_oracle ${GENERATED_SOURCES_TARGET})
     target_compile_definitions(${TARGET}_oracle PRIVATE
         INCLUDE_GENERATED_CODE=1 HYBRID_RECOMPILED_CODE=1 SONIC_ORACLE_BUILD=1
         DEFAULT_DEBUG_PORT=${PORT_ORACLE}
@@ -177,7 +180,7 @@ function(add_recomp_mode TARGET PREFIX GAME_DIR ROM PORT_NATIVE PORT_ORACLE)
         if(MSVC)
             target_compile_options(${t} PRIVATE /W3 /WX- /utf-8 /wd4102 /wd4996 /wd4013)
             target_link_options(${t} PRIVATE /MAP)
-            set_source_files_properties("${GEN}/${PREFIX}_full.c"
+            set_source_files_properties("${GENERATED_SOURCES_FULL}"
                 PROPERTIES COMPILE_FLAGS "/bigobj")
         endif()
         if(WIN32)

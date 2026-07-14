@@ -46,8 +46,8 @@ crash.
 ## Layout
 
 - `segagenesisrecomp/` — the shared engine (submodule): recompiler,
-  runner, clean-room video/audio backends, per-game data under
-  `segagenesisrecomp/rka/` (game.toml, generated C, probes).
+  runner, clean-room video/audio backends, and per-game configuration under
+  `segagenesisrecomp/rka/`. Generated C is ignored build output.
 - `CMakeLists.txt` — native `RKARecomp` + dev-only `RKARecomp_oracle`.
 - `scripts/link-engine.*` — optional local-dev junction (`engine-local`)
   to a shared workspace engine checkout; CMake prefers it over the
@@ -59,9 +59,13 @@ crash.
 ```cmd
 git clone --recursive https://github.com/mstan/RocketKnightAdventuresRecomp.git
 cd RocketKnightAdventuresRecomp
+copy path\to\rka.bin segagenesisrecomp\rka\rka.bin
 cmake -S . -B build -G "Visual Studio 17 2022" -A x64
 cmake --build build --config Release --target RKARecomp
 ```
+
+CMake builds the current recompiler and regenerates native C whenever the ROM,
+configuration/discovery inputs, generation options, or recompiler changes.
 
 ## Running
 
