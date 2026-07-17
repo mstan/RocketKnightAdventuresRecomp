@@ -201,3 +201,12 @@ endfunction()
 
 # --- Mode: Rocket Knight Adventures (USA, 1 MB @ $000000) — bring-up ---------
 add_recomp_mode(RKARecomp rka rka rka.bin 4390 4391)
+
+# Shared recomp-ui (Dear ImGui) pre-boot launcher — NET-NEW for RKA (this repo
+# never shipped a launcher). Defines RECOMP_LAUNCHER, un-gating the runner's
+# main.c seam; links system GL; stages assets/ next to the exe. Native (shipped)
+# target only, never the _oracle dev target. No box art bundled yet (Rocket
+# Knight Adventures cover art not in the repo) — the launcher shows its built-in
+# placeholder until a boxart.tga is added.
+include(${CMAKE_SOURCE_DIR}/recomp-ui/recomp_ui.cmake)
+recomp_target_launcher_ui(RKARecomp)
