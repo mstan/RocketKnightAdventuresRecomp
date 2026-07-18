@@ -18,7 +18,12 @@ set(CMAKE_C_STANDARD 11)
 # segagenesisrecomp/rka/. Launcher omitted for bring-up (boots via CLI ROM arg).
 # ---------------------------------------------------------------------------
 
-if(EXISTS "${CMAKE_SOURCE_DIR}/engine-local")
+set(GENESIS_RECOMP_ROOT "" CACHE PATH
+    "Optional shared Genesis framework checkout (defaults to engine-local/submodule)")
+if(GENESIS_RECOMP_ROOT)
+    set(RECOMP_ROOT "${GENESIS_RECOMP_ROOT}")
+    message(STATUS "engine: explicit GENESIS_RECOMP_ROOT override")
+elseif(EXISTS "${CMAKE_SOURCE_DIR}/engine-local")
     set(RECOMP_ROOT "${CMAKE_SOURCE_DIR}/engine-local")
     message(STATUS "engine: local-dev override (engine-local/ -> shared checkout)")
 else()
@@ -26,6 +31,22 @@ else()
     message(STATUS "engine: committed segagenesisrecomp/ submodule")
 endif()
 set(RUNNER_ROOT "${RECOMP_ROOT}/runner")
+
+option(GENESIS_Z80_RECOMP
+    "Run the Genesis sound Z80 through a flat statically-recompiled backend" OFF)
+set(GENESIS_Z80_CORE_ROOT "" CACHE PATH
+    "SMS/GG Z80 semantic-core checkout used by GENESIS_Z80_RECOMP")
+set(GENESIS_Z80_AOT_SOURCE "" CACHE FILEPATH
+    "Generated <game>_step.c emitted by SmsRecomp --flat-step")
+if(GENESIS_Z80_RECOMP)
+    if(NOT EXISTS "${GENESIS_Z80_CORE_ROOT}/runner/include/sms_runtime.h")
+        message(FATAL_ERROR "GENESIS_Z80_CORE_ROOT must point at an smsggrecomp checkout")
+    endif()
+    if(NOT EXISTS "${GENESIS_Z80_AOT_SOURCE}")
+        message(FATAL_ERROR "GENESIS_Z80_AOT_SOURCE does not exist: ${GENESIS_Z80_AOT_SOURCE}")
+    endif()
+    get_filename_component(GENESIS_Z80_AOT_DIR "${GENESIS_Z80_AOT_SOURCE}" DIRECTORY)
+endif()
 
 add_subdirectory("${RECOMP_ROOT}/clownmdemu-core" clownmdemu-core)
 
@@ -108,6 +129,11 @@ set(OWN_BACKEND_SOURCES
     "${RUNNER_ROOT}/video/genesis_bus.c"
     "${RUNNER_ROOT}/video/genesis_machine.c"
     "${RUNNER_ROOT}/external/superzazu/z80.c")
+if(GENESIS_Z80_RECOMP)
+    list(APPEND OWN_BACKEND_SOURCES
+        "${RUNNER_ROOT}/z80_recomp.c"
+        "${GENESIS_Z80_AOT_SOURCE}")
+endif()
 
 set(NATIVE_FLOOR_SOURCES
     "${RUNNER_ROOT}/m68k_interp.c"
@@ -144,6 +170,11 @@ function(add_recomp_mode TARGET PREFIX GAME_DIR ROM PORT_NATIVE PORT_ORACLE)
         "${RECOMP_ROOT}/recompiler/src"
         "${GAME}"
     )
+    if(GENESIS_Z80_RECOMP)
+        list(APPEND INCLUDES_NATIVE
+            "${GENESIS_Z80_CORE_ROOT}/runner/include"
+            "${GENESIS_Z80_AOT_DIR}")
+    endif()
     set(INCLUDES_ORACLE
         "${RUNNER_ROOT}" "${RUNNER_ROOT}/include" "${RUNNER_ROOT}/video"
         "${RUNNER_ROOT}/external/ymfm/src"
@@ -160,6 +191,8 @@ function(add_recomp_mode TARGET PREFIX GAME_DIR ROM PORT_NATIVE PORT_ORACLE)
     target_compile_definitions(${TARGET} PRIVATE
         INCLUDE_GENERATED_CODE=1 ENABLE_RECOMPILED_CODE=1 OWN_BACKEND=1
         DEFAULT_DEBUG_PORT=${PORT_NATIVE}
+        $<$<BOOL:${GENESIS_Z80_RECOMP}>:GENESIS_Z80_RECOMP=1>
+        $<$<BOOL:${GENESIS_Z80_RECOMP}>:SMS_RUNTIME_NO_CALL_BY_ADDRESS=1>
         $<$<BOOL:${SONIC_REVERSE_DEBUG}>:SONIC_REVERSE_DEBUG=1>
         $<$<BOOL:${GEN_DEV_TRACE}>:GEN_DEV_TRACE>)
 
