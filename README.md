@@ -64,6 +64,10 @@ cmake -S . -B build -G "Visual Studio 17 2022" -A x64
 cmake --build build --config Release --target RKARecomp
 ```
 
+`Skipping submodule 'clownmdemu-core'` in the clone output is expected and
+correct. That core is AGPL and dev-only; nothing you build needs it, and CMake
+skips the dev-only `_oracle` targets automatically when it is absent.
+
 CMake builds the current recompiler and regenerates native C whenever the ROM,
 configuration/discovery inputs, generation options, or recompiler changes.
 

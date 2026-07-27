@@ -27,7 +27,13 @@ else()
 endif()
 set(RUNNER_ROOT "${RECOMP_ROOT}/runner")
 
-add_subdirectory("${RECOMP_ROOT}/clownmdemu-core" clownmdemu-core)
+# clownmdemu-core is an OPT-IN submodule: AGPL, private fork, and needed by
+# nothing that ships. Only the dev-only _oracle target below uses it.
+include("${RECOMP_ROOT}/cmake/GenesisOracle.cmake")
+genesis_oracle_resolve("${RECOMP_ROOT}")
+if(GENESIS_ORACLE)
+    add_subdirectory("${RECOMP_ROOT}/clownmdemu-core" clownmdemu-core)
+endif()
 
 set(SDL2_BUNDLED "${RUNNER_ROOT}/external/SDL2/SDL2-2.28.5")
 if(WIN32)
@@ -163,19 +169,25 @@ function(add_recomp_mode TARGET PREFIX GAME_DIR ROM PORT_NATIVE PORT_ORACLE)
         $<$<BOOL:${SONIC_REVERSE_DEBUG}>:SONIC_REVERSE_DEBUG=1>
         $<$<BOOL:${GEN_DEV_TRACE}>:GEN_DEV_TRACE>)
 
-    add_executable(${TARGET}_oracle ${SHARED_SRC}
-        "${RUNNER_ROOT}/hybrid.c" "${GAME}/${PREFIX}_hybrid_table.c"
-        "${RUNNER_ROOT}/hybrid_jmp.c" "${RUNNER_ROOT}/oracle_trace.c")
-    add_dependencies(${TARGET}_oracle ${GENERATED_SOURCES_TARGET})
-    target_compile_definitions(${TARGET}_oracle PRIVATE
-        INCLUDE_GENERATED_CODE=1 HYBRID_RECOMPILED_CODE=1 SONIC_ORACLE_BUILD=1
-        DEFAULT_DEBUG_PORT=${PORT_ORACLE}
-        $<$<BOOL:${SONIC_REVERSE_DEBUG}>:SONIC_REVERSE_DEBUG=1>
-        $<$<BOOL:${GEN_DEV_TRACE}>:GEN_DEV_TRACE>)
+    # Oracle is AGPL-linked and dev-only, so it exists only when the opt-in
+    # clownmdemu-core submodule is checked out (cmake/GenesisOracle.cmake).
+    set(_MODE_TARGETS ${TARGET})
+    if(GENESIS_ORACLE)
+        list(APPEND _MODE_TARGETS ${TARGET}_oracle)
+        add_executable(${TARGET}_oracle ${SHARED_SRC}
+            "${RUNNER_ROOT}/hybrid.c" "${GAME}/${PREFIX}_hybrid_table.c"
+            "${RUNNER_ROOT}/hybrid_jmp.c" "${RUNNER_ROOT}/oracle_trace.c")
+        add_dependencies(${TARGET}_oracle ${GENERATED_SOURCES_TARGET})
+        target_compile_definitions(${TARGET}_oracle PRIVATE
+            INCLUDE_GENERATED_CODE=1 HYBRID_RECOMPILED_CODE=1 SONIC_ORACLE_BUILD=1
+            DEFAULT_DEBUG_PORT=${PORT_ORACLE}
+            $<$<BOOL:${SONIC_REVERSE_DEBUG}>:SONIC_REVERSE_DEBUG=1>
+            $<$<BOOL:${GEN_DEV_TRACE}>:GEN_DEV_TRACE>)
+        target_include_directories(${TARGET}_oracle PRIVATE ${INCLUDES_ORACLE})
+    endif()
 
     target_include_directories(${TARGET} PRIVATE ${INCLUDES_NATIVE})
-    target_include_directories(${TARGET}_oracle PRIVATE ${INCLUDES_ORACLE})
-    foreach(t ${TARGET} ${TARGET}_oracle)
+    foreach(t ${_MODE_TARGETS})
         target_link_libraries(${t} PRIVATE ${COMMON_LIBS})
         if(MSVC)
             target_compile_options(${t} PRIVATE /W3 /WX- /utf-8 /wd4102 /wd4996 /wd4013)
@@ -196,7 +208,9 @@ function(add_recomp_mode TARGET PREFIX GAME_DIR ROM PORT_NATIVE PORT_ORACLE)
             endif()
         endif()
     endforeach()
-    target_link_libraries(${TARGET}_oracle PRIVATE clownmdemu-core)
+    if(GENESIS_ORACLE)
+        target_link_libraries(${TARGET}_oracle PRIVATE clownmdemu-core)
+    endif()
 endfunction()
 
 # --- Mode: Rocket Knight Adventures (USA, 1 MB @ $000000) — bring-up ---------
