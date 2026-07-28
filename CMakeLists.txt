@@ -12,7 +12,7 @@ set(CMAKE_C_STANDARD 11)
 # (so heuristic discovery is incomplete and the floor actually fires on real
 # undiscovered functions — the thing Sonic's full coverage never exercised).
 #
-# Engine (runner + recompiler + clownmdemu fork) comes from the canonical
+# Engine (runner + recompiler) comes from the canonical
 # segagenesisrecomp checkout, reached through a local directory junction
 # (./segagenesisrecomp -> ../segagenesisrecomp); per-game data lives in
 # segagenesisrecomp/rka/. Launcher omitted for bring-up (boots via CLI ROM arg).
@@ -26,14 +26,6 @@ else()
     message(STATUS "engine: committed segagenesisrecomp/ submodule")
 endif()
 set(RUNNER_ROOT "${RECOMP_ROOT}/runner")
-
-# clownmdemu-core is an OPT-IN submodule: AGPL, private fork, and needed by
-# nothing that ships. Only the dev-only _oracle target below uses it.
-include("${RECOMP_ROOT}/cmake/GenesisOracle.cmake")
-genesis_oracle_resolve("${RECOMP_ROOT}")
-if(GENESIS_ORACLE)
-    add_subdirectory("${RECOMP_ROOT}/clownmdemu-core" clownmdemu-core)
-endif()
 
 set(SDL2_BUNDLED "${RUNNER_ROOT}/external/SDL2/SDL2-2.28.5")
 if(WIN32)
@@ -89,7 +81,6 @@ set(RUNNER_SOURCES
     "${RUNNER_ROOT}/main.c"
     "${RUNNER_ROOT}/audio.c"
     ${GEN_TRACE_SOURCES}
-    "${RUNNER_ROOT}/hybrid_global.c"
     "${RUNNER_ROOT}/glue.c"
     "${RUNNER_ROOT}/fiber_compat.c"
     "${RUNNER_ROOT}/crash_report.c"
@@ -130,7 +121,7 @@ if(WIN32)
     list(APPEND COMMON_LIBS ws2_32 comdlg32)
 endif()
 
-# add_recomp_mode(<target> <prefix> <game_dir> <rom> <native_port> <oracle_port>)
+# add_recomp_mode(<target> <prefix> <game_dir> <rom> <native_port> <unused>)
 include("${RECOMP_ROOT}/cmake/GenesisRecompGenerated.cmake")
 function(add_recomp_mode TARGET PREFIX GAME_DIR ROM PORT_NATIVE PORT_ORACLE)
     set(GAME "${RECOMP_ROOT}/${GAME_DIR}")
@@ -150,16 +141,6 @@ function(add_recomp_mode TARGET PREFIX GAME_DIR ROM PORT_NATIVE PORT_ORACLE)
         "${RECOMP_ROOT}/recompiler/src"
         "${GAME}"
     )
-    set(INCLUDES_ORACLE
-        "${RUNNER_ROOT}" "${RUNNER_ROOT}/include" "${RUNNER_ROOT}/video"
-        "${RUNNER_ROOT}/external/ymfm/src"
-        "${RUNNER_ROOT}/external/superzazu"
-        "${RECOMP_ROOT}/clownmdemu-core/libraries/clownz80/source" "${GAME}"
-        "${RECOMP_ROOT}/clownmdemu-core/source"
-        "${RECOMP_ROOT}/clownmdemu-core/libraries/clowncommon"
-        "${RECOMP_ROOT}/clownmdemu-core/libraries/clown68000/source/interpreter"
-        ${SDL2_PARENT_INCLUDE_DIRS}
-    )
 
     add_executable(${TARGET} ${SHARED_SRC} ${OWN_BACKEND_SOURCES} ${NATIVE_FLOOR_SOURCES})
     add_dependencies(${TARGET} ${GENERATED_SOURCES_TARGET})
@@ -169,25 +150,8 @@ function(add_recomp_mode TARGET PREFIX GAME_DIR ROM PORT_NATIVE PORT_ORACLE)
         $<$<BOOL:${SONIC_REVERSE_DEBUG}>:SONIC_REVERSE_DEBUG=1>
         $<$<BOOL:${GEN_DEV_TRACE}>:GEN_DEV_TRACE>)
 
-    # Oracle is AGPL-linked and dev-only, so it exists only when the opt-in
-    # clownmdemu-core submodule is checked out (cmake/GenesisOracle.cmake).
-    set(_MODE_TARGETS ${TARGET})
-    if(GENESIS_ORACLE)
-        list(APPEND _MODE_TARGETS ${TARGET}_oracle)
-        add_executable(${TARGET}_oracle ${SHARED_SRC}
-            "${RUNNER_ROOT}/hybrid.c" "${GAME}/${PREFIX}_hybrid_table.c"
-            "${RUNNER_ROOT}/hybrid_jmp.c" "${RUNNER_ROOT}/oracle_trace.c")
-        add_dependencies(${TARGET}_oracle ${GENERATED_SOURCES_TARGET})
-        target_compile_definitions(${TARGET}_oracle PRIVATE
-            INCLUDE_GENERATED_CODE=1 HYBRID_RECOMPILED_CODE=1 SONIC_ORACLE_BUILD=1
-            DEFAULT_DEBUG_PORT=${PORT_ORACLE}
-            $<$<BOOL:${SONIC_REVERSE_DEBUG}>:SONIC_REVERSE_DEBUG=1>
-            $<$<BOOL:${GEN_DEV_TRACE}>:GEN_DEV_TRACE>)
-        target_include_directories(${TARGET}_oracle PRIVATE ${INCLUDES_ORACLE})
-    endif()
-
     target_include_directories(${TARGET} PRIVATE ${INCLUDES_NATIVE})
-    foreach(t ${_MODE_TARGETS})
+    foreach(t ${TARGET})
         target_link_libraries(${t} PRIVATE ${COMMON_LIBS})
         if(MSVC)
             target_compile_options(${t} PRIVATE /W3 /WX- /utf-8 /wd4102 /wd4996 /wd4013)
@@ -208,9 +172,6 @@ function(add_recomp_mode TARGET PREFIX GAME_DIR ROM PORT_NATIVE PORT_ORACLE)
             endif()
         endif()
     endforeach()
-    if(GENESIS_ORACLE)
-        target_link_libraries(${TARGET}_oracle PRIVATE clownmdemu-core)
-    endif()
 endfunction()
 
 # --- Mode: Rocket Knight Adventures (USA, 1 MB @ $000000) — bring-up ---------
@@ -219,6 +180,6 @@ add_recomp_mode(RKARecomp rka rka rka.bin 4390 4391)
 # Shared recomp-ui (Dear ImGui) pre-boot launcher — NET-NEW for RKA (this repo
 # never shipped a launcher). Defines RECOMP_LAUNCHER, un-gating the runner's
 # main.c seam; links system GL; stages assets/ next to the exe. Native (shipped)
-# target only, never the _oracle dev target.
+# target only.
 include(${CMAKE_SOURCE_DIR}/recomp-ui/recomp_ui.cmake)
 recomp_target_launcher_ui(RKARecomp BOXART ${CMAKE_SOURCE_DIR}/boxart.tga)
