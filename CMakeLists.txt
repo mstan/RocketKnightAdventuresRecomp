@@ -95,6 +95,7 @@ set(RUNNER_SOURCES
     "${RUNNER_ROOT}/audio/sn76489.c"
     "${RUNNER_ROOT}/audio/mixer.c"
     "${RUNNER_ROOT}/audio/observability.c"
+    "${RUNNER_ROOT}/cosim_state.c"  # pointer-free end-state hash for benchmarks
     "${RUNNER_ROOT}/audio/audio_shadow.c"
     "${RUNNER_ROOT}/audio/fm_shadow.cpp"
     "${RUNNER_ROOT}/video/color_lut.c"
@@ -116,7 +117,7 @@ option(SONIC_REVERSE_DEBUG
 option(GEN_DEV_TRACE
     "Compile the dev chip/snd trace rings + dumps (NEVER in release builds)" OFF)
 
-set(COMMON_LIBS SDL2::SDL2 SDL2::SDL2main)
+set(COMMON_LIBS SDL2::SDL2main SDL2::SDL2)
 if(WIN32)
     list(APPEND COMMON_LIBS ws2_32 comdlg32)
 endif()
