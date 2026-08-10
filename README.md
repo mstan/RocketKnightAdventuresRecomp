@@ -30,8 +30,8 @@ Heuristic discovery cannot prove it found every function. Instead of a
 missed dispatch silently no-op'ing (the classic "stuck in place /
 softlock" failure), any call to code the recompiler didn't discover is
 executed **correctly at runtime by a clean-room 68000 interpreter**, and
-the executed addresses are appended to `floor_coverage.txt` next to the
-exe. Those leads get folded back into the static function set on the
+the executed addresses are written to `floor_coverage.toml` next to the
+exe. Those leads can be validated and folded back into the static function set on the
 next regeneration — so the port converges toward fully-native with
 every play session, and an undiscovered code path is a log line, not a
 crash.

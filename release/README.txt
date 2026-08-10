@@ -7,7 +7,7 @@ A native Windows port produced by statically recompiling the Sega Genesis
 clean-room VDP/bus/scheduler, ymfm FM synthesis, clean-room SN76489 PSG. A
 clean-room 68000 interpreter acts as an always-on safety net for any code
 path the static recompiler has not discovered yet (logged to
-floor_coverage.txt).
+floor_coverage.toml).
 
 BRING YOUR OWN ROM
 ------------------

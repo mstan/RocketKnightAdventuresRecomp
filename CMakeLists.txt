@@ -18,7 +18,12 @@ set(CMAKE_C_STANDARD 11)
 # segagenesisrecomp/rka/. Launcher omitted for bring-up (boots via CLI ROM arg).
 # ---------------------------------------------------------------------------
 
-if(EXISTS "${CMAKE_SOURCE_DIR}/engine-local")
+set(GENESIS_RECOMP_ROOT "" CACHE PATH
+    "Optional shared Genesis framework checkout (defaults to engine-local/submodule)")
+if(GENESIS_RECOMP_ROOT)
+    set(RECOMP_ROOT "${GENESIS_RECOMP_ROOT}")
+    message(STATUS "engine: explicit GENESIS_RECOMP_ROOT override")
+elseif(EXISTS "${CMAKE_SOURCE_DIR}/engine-local")
     set(RECOMP_ROOT "${CMAKE_SOURCE_DIR}/engine-local")
     message(STATUS "engine: local-dev override (engine-local/ -> shared checkout)")
 else()
@@ -183,4 +188,5 @@ add_recomp_mode(RKARecomp rka rka rka.bin 4390 4391)
 # main.c seam; links system GL; stages assets/ next to the exe. Native (shipped)
 # target only.
 include(${CMAKE_SOURCE_DIR}/recomp-ui/recomp_ui.cmake)
-recomp_target_launcher_ui(RKARecomp BOXART ${CMAKE_SOURCE_DIR}/boxart.tga)
+recomp_target_launcher_ui(RKARecomp CONSOLE genesis
+    BOXART ${CMAKE_SOURCE_DIR}/boxart.tga)
