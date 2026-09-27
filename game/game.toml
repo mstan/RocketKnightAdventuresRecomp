@@ -179,3 +179,21 @@ kind = "game_hook"
 [[widescreen_site]]
 addr = 0x0115EA
 kind = "game_hook"
+
+# Capture the camera and autonomous-motion terms before per-strip BG scroll
+# is negated and written to $FFEC00. The native game remains untouched.
+[[widescreen_site]]
+addr = 0x0069BE
+kind = "game_hook"
+[[widescreen_site]]
+addr = 0x006AD2
+kind = "game_hook"
+[[widescreen_site]]
+addr = 0x006BDA
+kind = "game_hook"
+[[widescreen_site]]
+addr = 0x007964
+kind = "game_hook"
+[[widescreen_site]]
+addr = 0x00803A
+kind = "game_hook"

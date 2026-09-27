@@ -31,6 +31,16 @@ static unsigned s_sprite_overflow;
 static int s_width, s_left, s_origin, s_camera;
 static uint8_t *s_priority, *s_occupied;
 static int s_capacity;
+typedef struct {
+    uint32_t phase;
+    int32_t camera;
+    uint16_t native_h;
+    uint8_t shift, valid;
+} ScrollStrip;
+typedef struct { ScrollStrip strip[32]; unsigned serial, mode, stage; } ScrollFrame;
+static ScrollFrame s_scroll[3];
+static unsigned s_scroll_serial;
+static int s_bg_x;
 
 static unsigned r16(const uint8_t *r, unsigned a)
 { return (r[a & 65535u] << 8) | r[(a + 1) & 65535u]; }
@@ -104,6 +114,50 @@ void rka_video_reset(void)
     memset(&s_presented, 0, sizeof s_presented);
     s_scene = NULL; s_serial = s_frames = s_spawned = 0;
     s_sprite_overflow = s_terrain_checks = s_terrain_errors = 0;
+    memset(s_scroll,0,sizeof s_scroll); s_scroll_serial = 0;
+}
+
+/* $69BE/$6AD2/$6BDA/$7964/$803A: D4 is autonomous motion plus
+ * D5 >> D3 camera parallax, immediately before NEG/SWAP publishes EC00.
+ * Preserve both terms so an edge-clamped wide camera does not drag the
+ * background while the foreground is stationary. No guest writes/cycles. */
+static void capture_scroll(void)
+{
+    unsigned address = g_cpu.A[3] & 65535u;
+    if (address < 0xEC00 || address >= 0xEC40 || (address & 1)) return;
+    unsigned row = (address - 0xEC00) / 2, shift = g_cpu.D[3] & 65535u;
+    if (shift > 31) return;
+    if (!row) {
+        ++s_scroll_serial;
+        memset(&s_scroll[s_scroll_serial % 3],0,sizeof s_scroll[0]);
+    }
+    ScrollFrame *frame = &s_scroll[s_scroll_serial % 3];
+    frame->serial = s_scroll_serial;
+    frame->mode = r16(g_ram,0xB3B8); frame->stage = r16(g_ram,0xFB12);
+    ScrollStrip *strip = &frame->strip[row];
+    strip->camera = (int32_t)g_cpu.D[5]; strip->shift = (uint8_t)shift;
+    strip->phase = g_cpu.D[4] - (shift ? (uint32_t)(strip->camera >> shift) : 0);
+    strip->native_h = (uint16_t)((0u - g_cpu.D[4]) >> 16);
+    strip->valid = 1;
+}
+
+static int background_scroll(const uint8_t *r, int line, int native_h, int delta)
+{
+    const ScrollStrip *best = NULL;
+    unsigned serial = 0;
+    for (unsigned i=0;i<3;++i) {
+        const ScrollFrame *f = &s_scroll[i];
+        const ScrollStrip *strip = &f->strip[(line & 255) / 8];
+        if (f->serial > serial && f->mode == r16(r,0xB3B8) &&
+            f->stage == r16(r,0xFB12) && strip->valid &&
+            strip->native_h == (uint16_t)native_h) {
+            best = strip; serial = f->serial;
+        }
+    }
+    if (!best || !delta || !best->shift) return native_h;
+    int64_t camera = best->camera + (int64_t)delta * 65536;
+    uint32_t value = best->phase + (uint32_t)(camera >> best->shift);
+    return (int16_t)((0u - value) >> 16);
 }
 
 /* The native streamers expand one layout byte into a 4x4 array of tile
@@ -209,6 +263,8 @@ static void spawn_visible(void)
 int rka_video_hook(uint32_t pc)
 {
     if (!enabled()) return 0;
+    if (pc == 0x69BE || pc == 0x6AD2 || pc == 0x6BDA ||
+        pc == 0x7964 || pc == 0x803A) { capture_scroll(); return 0; }
     if (pc == 0x1FB0) {
         s_build.count = 0;
         /* The actor camera includes shake and the SAT's 128px bias. */
@@ -272,6 +328,26 @@ static void draw_sprite(const GVDP *v, const Sprite *s, int line, uint32_t *out,
         if ((s->attr & 0x8000) || !s_priority[dst]) out[dst] = palette[p];
     }
 }
+
+static void draw_hud_frame(const GVDP *v, int line, const uint32_t *native,
+                           uint32_t *out, int width, const uint32_t *palette)
+{
+    int center = (width - 320) / 2;
+    /* Reuse RKA's own end pillars and 32px gold cornice. The blank glyph
+     * beside SCORE fills the panel; never repeat counters or stretch art. */
+    unsigned window = (v->reg[3] & 62u) << 10;
+    unsigned blank = r16(v->vram,window + 64u * 2u + 15u * 2u);
+    for (int x=0;x<width;++x) {
+        if (x >= center && x < center + 320) continue;
+        if (x < 16 && x < center) out[x] = native[x];
+        else if (x >= width - 16 && x >= center + 320) out[x] = native[320 - (width - x)];
+        else if (line < 8 || line >= 24) out[x] = native[32 + ((unsigned)(x-center) & 31u)];
+        else {
+            unsigned p = pixel(v,blank,x,line);
+            out[x] = palette[p ? p : (v->reg[7] & 63)];
+        }
+    }
+}
 static void scanline(const GVDP *v, int line, const uint32_t *native, int nw,
                      uint32_t *out, int width)
 {
@@ -304,6 +380,9 @@ static void scanline(const GVDP *v, int line, const uint32_t *native, int nw,
     /* Keep the camera anchor fixed across the frame so per-strip/per-line
      * horizontal scroll remains visible instead of cancelling itself out. */
     int origin = level ? s_camera - s_left : (width - nw) / 2;
+    int center = (width - nw) / 2;
+    int bg_h = level && hm == 2 ? background_scroll(r,line,hb,center-origin) : hb;
+    if (line == 128) s_bg_x = -center - bg_h;
     s_origin = origin;
     unsigned ba = (v->reg[2] & 56u) << 10, bb = (v->reg[4] & 7u) << 13;
     memset(s_occupied,0,(size_t)width);
@@ -316,7 +395,7 @@ static void scanline(const GVDP *v, int line, const uint32_t *native, int nw,
         }
         int va = v->vsram[col] & 1023, vb = v->vsram[col+1] & 1023;
         int wy = unwrap(va,r16(r,0xB1D6)) + line;
-        int bx = nx - hb, by = line + vb;
+        int bx = x - center - bg_h, by = line + vb;
         unsigned a = level ? terrain(r,wx,wy) : plane(v,ba,nx-ha,line+va);
         unsigned b = plane(v,bb,bx,by);
         unsigned ap = pixel(v,a,wx,wy), bp = pixel(v,b,bx,by);
@@ -372,6 +451,8 @@ static void scanline(const GVDP *v, int line, const uint32_t *native, int nw,
     int window_y=(v->reg[18]&31)*8;
     if ((v->reg[18]&128) ? line>=window_y : line<window_y) {
         int start=(width-nw)/2;
+        if (window_y == 32 && !(v->reg[18]&128))
+            draw_hud_frame(v,line,native,out,width,palette);
         memcpy(out+start,native,(size_t)nw*sizeof *out);
     }
 }
@@ -380,9 +461,9 @@ void rka_video_command(int id, const char *json)
     (void)json;
     char out[640];
     snprintf(out,sizeof out,"{\"id\":%d,\"enabled\":%d,\"width\":%d,\"view_left\":%d,"
-        "\"camera\":%d,\"native_x\":%d,\"frames\":%u,\"terrain_checks\":%u,"
+        "\"camera\":%d,\"native_x\":%d,\"bg_x_128\":%d,\"frames\":%u,\"terrain_checks\":%u,"
         "\"terrain_errors\":%u,\"sprites\":%u,\"spawn_mode\":\"%s\",\"spawned\":%u,\"sprite_overflow\":%u,\"published\":%u,\"displayed\":%u}",
-        id,enabled(),s_width,s_left,s_camera,s_origin,s_frames,s_terrain_checks,s_terrain_errors,
+        id,enabled(),s_width,s_left,s_camera,s_origin,s_bg_x,s_frames,s_terrain_checks,s_terrain_errors,
         s_scene?s_scene->count:0,rka_video_spawn_mode(),s_spawned,s_sprite_overflow,s_serial,s_scene?s_scene->serial:0);
     cmd_send_response(out);
 }
