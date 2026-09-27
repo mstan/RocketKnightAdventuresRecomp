@@ -122,7 +122,9 @@ ultra_walk = capture("edge-walk-ultrawide", "48:9", route=walk_route, frames=20)
 ui=Image.open(ultra_idle / "scene.png").convert("RGB")
 uw=Image.open(ultra_walk / "scene.png").convert("RGB")
 assert ui.width == uw.width == 1195
-box=(490,60,560,125)
+# Walking activates foreground pigs whose helmets reach y=108 in front of
+# the castle. Its upper silhouette and flying detail remain unobstructed.
+box=(490,60,560,104)
 assert ImageChops.difference(ui.crop(box),uw.crop(box)).getbbox() is None
 for ordinary,ultra in [(idle,ultra_idle),(walk,ultra_walk)]:
     for ext in ("ram","vram"):
