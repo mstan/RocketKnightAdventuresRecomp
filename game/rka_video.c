@@ -17,7 +17,11 @@
 enum { VIDEO_OFF, VIDEO_FIT, VIDEO_RATIO, MAX_SPRITES = 2048 };
 static int s_mode, s_requested_width = 320, s_expanded = 1;
 static double s_ratio = 16.0 / 9.0;
-typedef struct { int x, y; uint16_t attr; uint8_t size, screen, front; } Sprite;
+typedef struct {
+    int x, y;
+    uint16_t attr, fraction_x;
+    uint8_t size, screen, front, castle_parallax;
+} Sprite;
 typedef struct {
     uint8_t ram[65536], sat[640];
     Sprite sprites[MAX_SPRITES];
@@ -196,6 +200,7 @@ static int unwrap(int value, int reference)
 static void capture_actor(void)
 {
     unsigned o = g_cpu.A[1] & 65535u, map = g_cpu.A[4] & 0xFFFFFFu;
+    unsigned type = r16(g_ram,o);
     unsigned count = read16(g_ram, map) + 1;
     if (count > MAX_SPRITES) return;
     int flip_x = g_ram[o + 0x1A] != 0, flip_y = g_ram[o + 0x1B] != 0;
@@ -222,6 +227,13 @@ static void capture_actor(void)
             s->x = x; s->y = y; s->attr = (uint16_t)attr;
             s->size = (uint8_t)size; s->screen = (uint8_t)screen;
             s->front = o >= (r32(g_ram,0xB054) & 65535u);
+            /* Types $07/$3B are scenery, not ordinary world-space actors.
+             * $12C62 computes 7/8 * (camera + 160) for the castle; $12CD8
+             * derives its flying detail from that anchor plus a timed phase.
+             * Keep the fractional coordinate so presentation rounds only
+             * after replacing the camera term. Guest positions stay intact. */
+            s->castle_parallax = type == 0x07 || type == 0x3B;
+            s->fraction_x = (uint16_t)r16(g_ram,o+8);
         } else ++s_sprite_overflow;
     }
 }
@@ -312,6 +324,15 @@ static void draw_sprite(const GVDP *v, const Sprite *s, int line, uint32_t *out,
                         const uint32_t *palette)
 {
     int x = s->screen ? s->x + (width - 320) / 2 : s->x - camera_x + origin;
+    if (s->castle_parallax && s_scene && origin != (width - 320) / 2) {
+        int64_t camera = (int32_t)r32(s_scene->ram,0xB1D2) + (int64_t)160 * 65536;
+        /* At a clamped edge the wider camera is on an integer pixel. Do not
+         * let the moving native camera's fractional part move the scenery. */
+        int64_t wide = (camera >> 16) * 65536 +
+                       (int64_t)((width - 320) / 2 - origin) * 65536;
+        int64_t change = (wide - (wide >> 3)) - (camera - (camera >> 3));
+        x += (int)((s->fraction_x + change) >> 16);
+    }
     int y = s->screen ? s->y : s->y - camera_y;
     int wt = ((s->size >> 2) & 3) + 1, ht = (s->size & 3) + 1;
     int dy = line - y;
@@ -329,23 +350,16 @@ static void draw_sprite(const GVDP *v, const Sprite *s, int line, uint32_t *out,
     }
 }
 
-static void draw_hud_frame(const GVDP *v, int line, const uint32_t *native,
-                           uint32_t *out, int width, const uint32_t *palette)
+static void draw_hud_trim(int line, const uint32_t *native,
+                           uint32_t *out, int width)
 {
     int center = (width - 320) / 2;
-    /* Reuse RKA's own end pillars and 32px gold cornice. The blank glyph
-     * beside SCORE fills the panel; never repeat counters or stretch art. */
-    unsigned window = (v->reg[3] & 62u) << 10;
-    unsigned blank = r16(v->vram,window + 64u * 2u + 15u * 2u);
+    /* Extend only the original 8px cornice. Keep the already-composited
+     * scenery below it rather than creating long empty framed panels. */
+    if (line >= 8) return;
     for (int x=0;x<width;++x) {
         if (x >= center && x < center + 320) continue;
-        if (x < 16 && x < center) out[x] = native[x];
-        else if (x >= width - 16 && x >= center + 320) out[x] = native[320 - (width - x)];
-        else if (line < 8 || line >= 24) out[x] = native[32 + ((unsigned)(x-center) & 31u)];
-        else {
-            unsigned p = pixel(v,blank,x,line);
-            out[x] = palette[p ? p : (v->reg[7] & 63)];
-        }
+        out[x] = native[32 + ((unsigned)(x-center) & 31u)];
     }
 }
 static void scanline(const GVDP *v, int line, const uint32_t *native, int nw,
@@ -373,7 +387,13 @@ static void scanline(const GVDP *v, int line, const uint32_t *native, int nw,
     }
     unsigned hs = (v->reg[13] & 63u) << 10;
     int hm = v->reg[11] & 3, hi = hm == 0 ? 0 : hm == 2 ? line & ~7 : line;
-    int ha = (int16_t)r16(v->vram, hs + hi * 4), hb = (int16_t)r16(v->vram, hs + hi * 4 + 2);
+    int ha = (int16_t)r16(v->vram, hs + hi * 4);
+    /* RKA fills the name-table rows hidden by its HUD with an opaque black
+     * tile. Extend the first visible background tile row upward into those
+     * newly exposed margins, using its live art, palette and scroll strip. */
+    int bg_line = level && v->reg[18] == 4 && line < 32 ? 32 + (line & 7) : line;
+    int bhi = hm == 0 ? 0 : hm == 2 ? bg_line & ~7 : bg_line;
+    int hb = (int16_t)r16(v->vram, hs + bhi * 4 + 2);
     int camera = unwrap(-ha, r16(r, 0xB1D2));
     int cy = unwrap(v->vsram[0], r16(r, 0xB1D6));
     if (!line) { s_camera = camera; s_left = level ? view_left(camera,width,r) : camera-(width-nw)/2; }
@@ -381,7 +401,7 @@ static void scanline(const GVDP *v, int line, const uint32_t *native, int nw,
      * horizontal scroll remains visible instead of cancelling itself out. */
     int origin = level ? s_camera - s_left : (width - nw) / 2;
     int center = (width - nw) / 2;
-    int bg_h = level && hm == 2 ? background_scroll(r,line,hb,center-origin) : hb;
+    int bg_h = level && hm == 2 ? background_scroll(r,bg_line,hb,center-origin) : hb;
     if (line == 128) s_bg_x = -center - bg_h;
     s_origin = origin;
     unsigned ba = (v->reg[2] & 56u) << 10, bb = (v->reg[4] & 7u) << 13;
@@ -395,10 +415,11 @@ static void scanline(const GVDP *v, int line, const uint32_t *native, int nw,
         }
         int va = v->vsram[col] & 1023, vb = v->vsram[col+1] & 1023;
         int wy = unwrap(va,r16(r,0xB1D6)) + line;
-        int bx = x - center - bg_h, by = line + vb;
+        int bx = x - center - bg_h, by = bg_line + vb;
         unsigned a = level ? terrain(r,wx,wy) : plane(v,ba,nx-ha,line+va);
         unsigned b = plane(v,bb,bx,by);
-        unsigned ap = pixel(v,a,wx,wy), bp = pixel(v,b,bx,by);
+        unsigned ap = bg_line == line ? pixel(v,a,wx,wy) : 0;
+        unsigned bp = pixel(v,b,bx,by);
         unsigned color = ap && (a & 0x8000) ? ap : bp && (b & 0x8000) ? bp : ap ? ap : bp;
         out[x] = color ? palette[color] : backdrop;
         s_priority[x] = (uint8_t)((ap && (a & 0x8000)) || (bp && (b & 0x8000)));
@@ -433,7 +454,7 @@ static void scanline(const GVDP *v, int line, const uint32_t *native, int nw,
         int sentinel = index == 0 && raw_x == 8 && sy == 0 && sh == 32 &&
                        (r16(v->vram,sat+14)&511) == 0;
         if (raw_x && !sentinel && (!s_scene || index<10)) {
-            Sprite s;
+            Sprite s = {0};
             s.x=(int)(r16(v->vram,addr+6)&511)-128+camera;
             s.y=(int)(r16(v->vram,addr)&511)-128+cy;
             s.size=v->vram[(addr+2)&65535u];s.attr=(uint16_t)r16(v->vram,addr+4);s.screen=0;s.front=0;
@@ -452,7 +473,7 @@ static void scanline(const GVDP *v, int line, const uint32_t *native, int nw,
     if ((v->reg[18]&128) ? line>=window_y : line<window_y) {
         int start=(width-nw)/2;
         if (window_y == 32 && !(v->reg[18]&128))
-            draw_hud_frame(v,line,native,out,width,palette);
+            draw_hud_trim(line,native,out,width);
         memcpy(out+start,native,(size_t)nw*sizeof *out);
     }
 }

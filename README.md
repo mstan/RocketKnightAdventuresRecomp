@@ -104,9 +104,10 @@ Open **Mods → Widescreen**, enable it, and leave **Aspect ratio** on
 **Adaptive (fit window)**. The renderer follows the window as it resizes;
 16:9, 21:9 and 32:9 presets are also available. Terrain is reconstructed from
 RKA's level layout, with live tile art, palettes, scrolling and actor mappings.
-The HUD counters stay centered, their gold frame extends across the top,
-and pixels keep their proportions. Background parallax follows the wider
-camera at the level edges while clouds retain their independent motion.
+The HUD counters stay centered, with slim gold trim across the top and
+scenery beneath the side margins. Pixels keep their proportions. Background
+planes and the castle scenery follow the wider camera at the level edges
+while independent cloud motion and scenery animation are retained.
 
 **Enemy activation** offers:
 

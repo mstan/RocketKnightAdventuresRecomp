@@ -82,13 +82,13 @@ original, expanded = actor_count(stage_wide), actor_count(stage_expanded)
 assert expanded > original, (original, expanded)
 diag = json.loads((stage_expanded / "diagnostics.json").read_text())["custom_video"]
 assert diag["spawned"] > 0 and diag["spawn_mode"] == "expanded", diag
-# Extended HUD uses the original end pillars and ornament, with no repeated counters.
+# Keep the centered HUD, with a slim gold cornice over visible scenery.
 im = Image.open(stage_expanded / "scene.png").convert("RGB")
 center = (im.width - 320) // 2
-assert ImageChops.difference(im.crop((0,0,16,32)),im.crop((center,0,center+16,32))).getbbox() is None
-assert ImageChops.difference(im.crop((im.width-16,0,im.width,32)),im.crop((center+304,0,center+320,32))).getbbox() is None
 assert im.crop((16,0,center,8)).getbbox() is not None
-assert im.crop((16,24,center,32)).getbbox() is not None
+for box in [(16,8,center,32),(center+320,8,im.width-16,32)]:
+    margin=im.crop(box)
+    assert sum(n for n,p in margin.getcolors(margin.width*margin.height) if p==(0,0,0)) < margin.width*margin.height//20
 report["activation"] = {"original_actors": original, "expanded_actors": expanded,
                         "successful_spawns": diag["spawned"]}
 report["resize"] = json.loads((stage_expanded / "resize.json").read_text())
@@ -109,8 +109,24 @@ assert dw["camera"] > di["camera"] + 100, (di, dw)
 assert di["bg_x_128"] == dw["bg_x_128"], (di, dw)
 ii = Image.open(idle / "scene.png").convert("RGB")
 iw = Image.open(walk / "scene.png").convert("RGB")
-for box in [(500,32,760,64),(600,128,700,144)]:
+# The castle is a sprite with its own camera term. At 32:9 a thrown enemy
+# helmet crosses (341,66)-(349,71) in the walking run; compare the clear body
+# here and include the flying detail in the unobstructed 48:9 crop below.
+for box in [(315,75,390,125),(500,32,760,64),(600,128,700,144)]:
     assert ImageChops.difference(ii.crop(box),iw.crop(box)).getbbox() is None, box
-report["edge_camera"] = {"idle": di, "walk": dw, "clouds_and_mountains_match": True}
+report["edge_camera"] = {"idle": di, "walk": dw, "castle_clouds_and_mountains_match": True}
+
+# Cover the owner's wider-than-32:9 display, including fractional native camera X.
+ultra_idle = capture("edge-idle-ultrawide", "48:9", route=idle_route, frames=100)
+ultra_walk = capture("edge-walk-ultrawide", "48:9", route=walk_route, frames=20)
+ui=Image.open(ultra_idle / "scene.png").convert("RGB")
+uw=Image.open(ultra_walk / "scene.png").convert("RGB")
+assert ui.width == uw.width == 1195
+box=(490,60,560,125)
+assert ImageChops.difference(ui.crop(box),uw.crop(box)).getbbox() is None
+for ordinary,ultra in [(idle,ultra_idle),(walk,ultra_walk)]:
+    for ext in ("ram","vram"):
+        assert (ordinary/f"scene.{ext}").read_bytes()==(ultra/f"scene.{ext}").read_bytes()
+report["ultrawide_castle"]={"width":ui.width,"castle_matches":True,"ram_vram_equal":True}
 (out / "verification.json").write_text(json.dumps(report, indent=2), encoding="utf-8")
-print(f"PASS: native RAM/VRAM/pixels, expanded activation, resize, HUD, edge parallax; {out / 'verification.json'}")
+print(f"PASS: native RAM/VRAM/pixels, activation, resize, slim HUD, castle/plane parallax; {out / 'verification.json'}")

@@ -25,6 +25,15 @@ against a short history keeps the metadata aligned with the live VDP. Clouds
 and other independently moving strips retain their native phase. No guest
 camera, scroll table or game state is changed.
 
+The stage-1 castle is a sprite object, not part of plane B. Object type `$07`
+computes world X as `7/8 * (camera + 160)`; type `$3B` derives its flying detail
+from that anchor plus a timed phase. At clamped edges, the renderer replaces
+their embedded native-camera term with the wider camera's term, retaining
+fractional coordinates until the final pixel rounding. The clamped camera
+does not inherit the moving native camera's fractional part. Their autonomous
+animation and all guest state remain untouched. Once the view scrolls freely,
+the native sprite projection is retained.
+
 The view clamps to the stage's horizontal bounds. Actor mappings are captured
 before the 80-piece SAT limit and 9-bit coordinate wrapping. A short history
 matches the captured scene to the SAT actually published in VRAM; this avoids
@@ -32,9 +41,12 @@ drawing next-frame actors over the current frame's terrain. Sprite ordering,
 flips, palette selection, foreground groups and the separate player SAT prefix
 are retained. The two native HUD masking sentinels remain invisible.
 
-The native window/HUD counters stay centered. The added margins extend the
-HUD's gold cornice and end pillars using the original art and blank panel
-glyph; counters are neither repeated nor stretched. Menus and non-layout scenes retain their
+The native window/HUD counters stay centered. The added margins extend only
+the original 8-pixel gold cornice, with scenery visible beneath it. There are
+no empty framed panels, repeated counters or stretched art. Because the native
+background rows hidden by the HUD contain opaque black tiles, the margins
+extend the first exposed background tile row upward, retaining its live art,
+palette and scroll strip. Menus and non-layout scenes retain their
 native center; surrounding planes can fill the added width. Interlace and
 shadow/highlight scenes use a centered native fallback. The native 320-pixel
 playfield is the minimum width. Fixed ratios and Adaptive may exceed 32:9.
@@ -83,6 +95,8 @@ All addresses were checked against the original ROM bytes with Capstone.
 | `$001FB0` | Begin actor mapping capture |
 | `$0021AE` | Mapping header, before hardware piece limit and coordinate mask |
 | `$002358` | Capture completed RAM scene/SAT before SAT DMA |
+| `$012C62` | Type `$07` castle: camera-plus-160 minus one eighth, in 16.16 coordinates |
+| `$012CD8` | Type `$3B` flying detail: castle anchor plus independent timed phase |
 | `$0069BE`, `$006AD2`, `$006BDA`, `$007964`, `$00803A` | Per-strip background total before NEG/SWAP: D4 = autonomous phase + (D5 camera >> D3 shift) |
 | `$FFEC00`, `$FFEC40`, `$FFB3B8` | Per-strip scroll values, autonomous phases and background effect selector |
 | `$0020AE`, `$0020BE` | Horizontal culling branches after original comparisons |
@@ -124,11 +138,13 @@ free-running debug server. It asserts:
   run), using ten successful native allocations, without dispatch misses.
 - Adaptive resizes through 1600×900, 1234×567, 1000×1000, 3840×720 and 640×448,
   producing widths 398, 488, 320, 1195 and 320, then disables successfully.
-- The HUD end pillars match the original art, its top/bottom trim fills the
-  wider margins, and its centered counters remain pixel identical.
+- The HUD's gold top trim fills the wider margins, with scenery rather than
+  black panels below it; its centered counters remain pixel identical.
 - Idle versus walking 80 frames from stage start keeps the wider view pinned
   at zero while the native camera moves from 2 to 235. Background strips and
-  clear cloud/mountain image regions agree at the same capture frame.
+  castle, flying detail, and clear cloud/mountain image regions agree at the
+  same capture frame. The castle also stays anchored at 48:9 (1195 pixels),
+  and RAM/VRAM are identical to the narrower Original Spawn Range captures.
 - Native terrain samples match the decoded level map and the capture buffer
   does not overflow.
 

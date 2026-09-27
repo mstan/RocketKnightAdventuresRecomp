@@ -110,13 +110,14 @@ assert actors(expanded) > actors(original)
 report["actors"] = {"original": actors(original), "expanded": actors(expanded)}
 im = Image.open(expanded / "scene.png").convert("RGB")
 center = (im.width-320)//2
-assert ImageChops.difference(im.crop((0,0,16,32)),im.crop((center,0,center+16,32))).getbbox() is None
-assert ImageChops.difference(im.crop((im.width-16,0,im.width,32)),im.crop((center+304,0,center+320,32))).getbbox() is None
-assert im.crop((16,0,center,8)).getbbox() and im.crop((16,24,center,32)).getbbox()
+assert im.crop((16,0,center,8)).getbbox()
+for box in ((16,8,center,32),(center+320,8,im.width-16,32)):
+    margin=im.crop(box)
+    assert sum(n for n,p in margin.getcolors(margin.width*margin.height) if p==(0,0,0)) < margin.width*margin.height//20
 idle = Image.open(capture("edge-idle", "32:9", edge="idle") / "scene.png").convert("RGB")
 walk = Image.open(capture("edge-walk", "32:9", edge="walk") / "scene.png").convert("RGB")
-for box in ((500,32,760,64),(600,128,700,144)):
+for box in ((315,75,390,125),(500,32,760,64),(600,128,700,144)):
     assert ImageChops.difference(idle.crop(box),walk.crop(box)).getbbox() is None
-report.update(native_parity=True, extended_hud=True, edge_parallax=True)
+report.update(native_parity=True, slim_hud=True, castle_and_plane_parallax=True)
 (out / "verification.json").write_text(json.dumps(report, indent=2))
 print(f"PASS packaged release: {out / 'verification.json'}")

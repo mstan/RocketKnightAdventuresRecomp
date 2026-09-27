@@ -19,8 +19,9 @@ beside itself on startup. Keep the AppImage in its own writable folder.
 
 Mods > Widescreen: enable the mod, then choose Adaptive (fit window), 16:9,
 21:9 or 32:9. Enemy activation defaults to Expanded Spawn Range; Original
-Spawn Range keeps the original screen's encounter timing. The HUD's gold
-frame fills the wider view. Special presentation screens remain centered.
+Spawn Range keeps the original screen's encounter timing. The HUD stays
+centered, with slim gold trim and scenery in the side margins. Special
+presentation screens remain centered.
 
 Controls: arrows to move, X for B (jump/rocket), Z for A, C for C,
 Enter for Start. Controllers and keyboard bindings are configurable in the
