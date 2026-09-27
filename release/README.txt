@@ -1,43 +1,36 @@
-RocketKnightAdventuresRecomp — native static recompilation of
-Rocket Knight Adventures (Konami, 1993)
-==============================================================================
+Rocket Knight Adventures Recomp v0.1.0
+=====================================
 
-A native Windows port produced by statically recompiling the Sega Genesis
-68000 code to C. No emulator core for the shipped game: recompiled CPU code,
-clean-room VDP/bus/scheduler, ymfm FM synthesis, clean-room SN76489 PSG. A
-clean-room 68000 interpreter acts as an always-on safety net for any code
-path the static recompiler has not discovered yet (logged to
-floor_coverage.toml).
+Bring your own Rocket Knight Adventures (USA) ROM: 1,048,576 bytes,
+CRC32 A6EFEC47. No game ROM is included. Other regions are unsupported.
+Source: https://github.com/mstan/RocketKnightAdventuresRecomp (private for now).
 
-BRING YOUR OWN ROM
-------------------
-This package contains NO game data. Place your own legally obtained ROM dump
-of Rocket Knight Adventures (USA) — a 1,048,576-byte .bin/.md file — next to
-RKARecomp.exe and run:
+Windows x64: extract the entire ZIP into a writable folder, then launch
+RKARecomp.exe. Select your ROM in the launcher.
 
-    RKARecomp.exe rka.bin --no-launcher
+Linux x86_64: put the AppImage in a writable folder, make it executable with
+chmod +x RocketKnightAdventuresRecomp-linux-x86_64-v0.1.0.AppImage, then run it.
+Built on Ubuntu 24.04 (glibc 2.39); requires a compatible Linux installation
+and working OpenGL. If FUSE is unavailable, run with --appimage-extract-and-run.
+The launcher uses zenity, kdialog or yad for its file picker. Alternatively,
+place your USA ROM beside the AppImage as rka.bin, or pass its path on the
+command line (this skips the launcher). The AppImage copies launcher assets
+beside itself on startup. Keep the AppImage in its own writable folder.
 
-CONTROLS
---------
-    Genesis        Keyboard    Gamepad (Xbox / DualSense)
-    D-pad          Arrows      D-pad or left stick
-    B (jump)       X           A / Cross
-    A (attack)     Z           B / Circle
-    C (attack)     C           X / Square
-    Start          Enter       Start / Options
+Mods > Widescreen: enable the mod, then choose Adaptive (fit window), 16:9,
+21:9 or 32:9. Enemy activation defaults to Expanded Spawn Range; Original
+Spawn Range keeps the original screen's encounter timing. The HUD's gold
+frame fills the wider view. Special presentation screens remain centered.
 
-Gamepads are plug-and-play (SDL2 game controller support; DualSense
-tested). Keyboard and pad are both active at all times.
+Controls: arrows to move, X for B (jump/rocket), Z for A, C for C,
+Enter for Start. Controllers and keyboard bindings are configurable in the
+launcher. Settings and ROM pointers live beside the EXE/AppImage:
+settings.ini, rka-video.ini and rom-RKA.cfg. Preserve these when upgrading.
 
-STATUS
-------
-v0.0.1 — Stage 1 playable end to end (attract, cinematic, parallax
-scrolling, full-charge/ricochet, end-of-stage). Later stages lightly
-tested; undiscovered code paths run on the interpreter fallback rather
-than crashing.
+This is an early release. Opening scenes, stage 1, adaptive resizing and both
+spawn modes have automated coverage. Later stages have not had a complete
+widescreen playthrough. The attract demo may diverge from its recorded inputs.
 
-LICENSES
---------
-PolyForm Noncommercial 1.0.0 (this port + engine). Bundled components:
-see THIRD-PARTY-LICENSES.md (ymfm BSD-3, superzazu z80 MIT, clowncommon
-ISC, SDL2 zlib).
+License: PolyForm Noncommercial 1.0.0 (LICENSE). Third-party components retain
+their own terms; see THIRD-PARTY-LICENSES.md and licenses/. RKA and its game
+assets belong to their respective owners. This project is unofficial.

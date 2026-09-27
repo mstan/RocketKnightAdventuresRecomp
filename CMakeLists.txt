@@ -1,5 +1,9 @@
 cmake_minimum_required(VERSION 3.19)
-project(RocketKnightAdventuresRecomp C)
+project(RocketKnightAdventuresRecomp VERSION 0.1.0 LANGUAGES C)
+set(RKA_BUILD_VERSION "${PROJECT_VERSION}" CACHE STRING "Release version")
+if(NOT RKA_BUILD_VERSION MATCHES "^[0-9]+\\.[0-9]+\\.[0-9]+(-[A-Za-z0-9.]+)?$")
+    message(FATAL_ERROR "Invalid RKA_BUILD_VERSION")
+endif()
 
 set(CMAKE_C_STANDARD 11)
 
@@ -182,6 +186,25 @@ endfunction()
 # --- Mode: Rocket Knight Adventures (USA, 1 MB @ $000000) -------------------
 add_recomp_mode(RKARecomp rka "${CMAKE_CURRENT_SOURCE_DIR}/game" rka.bin 4390 4391)
 target_sources(RKARecomp PRIVATE game/rka_video.c game/rka_options.c)
+target_compile_definitions(RKARecomp PRIVATE RKA_BUILD_VERSION="${RKA_BUILD_VERSION}")
+
+# Carry the exact inputs beside the binary; packagers check this before shipping.
+find_package(Git REQUIRED)
+foreach(_repo SOURCE ENGINE UI)
+    if(_repo STREQUAL "SOURCE")
+        set(_dir "${CMAKE_SOURCE_DIR}")
+    elseif(_repo STREQUAL "ENGINE")
+        set(_dir "${RECOMP_ROOT}")
+    else()
+        set(_dir "${CMAKE_SOURCE_DIR}/recomp-ui")
+    endif()
+    execute_process(COMMAND "${GIT_EXECUTABLE}" -C "${_dir}" rev-parse HEAD
+        OUTPUT_VARIABLE RKA_${_repo}_COMMIT OUTPUT_STRIP_TRAILING_WHITESPACE
+        COMMAND_ERROR_IS_FATAL ANY)
+endforeach()
+configure_file(tools/release/build-info.json.in release-build.json @ONLY)
+file(GENERATE OUTPUT "$<TARGET_FILE_DIR:RKARecomp>/build-info.json"
+    INPUT "${CMAKE_BINARY_DIR}/release-build.json" TARGET RKARecomp)
 
 # Shared recomp-ui (Dear ImGui) pre-boot launcher — NET-NEW for RKA (this repo
 # never shipped a launcher). Defines RECOMP_LAUNCHER, un-gating the runner's

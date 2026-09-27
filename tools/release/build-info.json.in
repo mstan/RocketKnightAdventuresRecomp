@@ -1,0 +1,11 @@
+{
+  "version": "@RKA_BUILD_VERSION@",
+  "source_commit": "@RKA_SOURCE_COMMIT@",
+  "engine_commit": "@RKA_ENGINE_COMMIT@",
+  "ui_commit": "@RKA_UI_COMMIT@",
+  "trace": "@GEN_ENABLE_TRACE@",
+  "reverse_debug": "@SONIC_REVERSE_DEBUG@",
+  "dev_trace": "@GEN_DEV_TRACE@",
+  "system": "@CMAKE_SYSTEM_NAME@",
+  "compiler": "@CMAKE_CXX_COMPILER_ID@ @CMAKE_CXX_COMPILER_VERSION@"
+}

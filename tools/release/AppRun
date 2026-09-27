@@ -1,0 +1,36 @@
+#!/bin/sh
+# Adapted from SuperMarioWorldRecomp/tools/build-linux.sh.
+set -eu
+HERE=$(dirname "$(readlink -f "$0")")
+export LD_LIBRARY_PATH="$HERE/usr/lib:${LD_LIBRARY_PATH:-}"
+export SDL_JOYSTICK_HIDAPI_STEAM=1
+export SDL_GAMECONTROLLER_ALLOW_STEAM_VIRTUAL_GAMEPAD=1
+SELF=${APPIMAGE:-$0}
+STATE=$(dirname "$(readlink -f "$SELF")")
+export APPIMAGE="$STATE/$(basename "$SELF")"
+if [ ! -w "$STATE" ]; then
+    echo "Place the AppImage in a writable folder for settings and launcher assets." >&2
+    exit 1
+fi
+# The pinned Genesis host resolves both settings and launcher assets beside
+# APPIMAGE. Refresh release-owned assets only; never overwrite user settings.
+mkdir -p "$STATE/assets"
+cp -R "$HERE/usr/bin/assets/." "$STATE/assets/"
+chmod -R u+rwX "$STATE/assets"
+[ -f "$STATE/settings.ini" ] || printf '[video]\ncustom_widescreen=0\ncustom_aspect=0\n' > "$STATE/settings.ini"
+[ -f "$STATE/rka-video.ini" ] || printf 'spawn_range=expanded\n' > "$STATE/rka-video.ini"
+cd "$STATE"
+cached=""
+[ ! -f rom-RKA.cfg ] || cached=$(head -n1 rom-RKA.cfg | tr -d '\r\n')
+if [ -z "$cached" ] || [ ! -f "$cached" ]; then
+    # Accept only a raw Genesis cartridge. In particular, do not mistake a
+    # README.md, save or memory dump for the owner's ROM.
+    for rom in ./*.bin ./*.md ./*.gen ./*.BIN ./*.MD ./*.GEN; do
+        [ -f "$rom" ] || continue
+        [ "$(wc -c < "$rom")" -eq 1048576 ] || continue
+        [ "$(dd if="$rom" bs=1 skip=256 count=4 2>/dev/null)" = SEGA ] || continue
+        printf '%s/%s\n' "$STATE" "${rom#./}" > rom-RKA.cfg
+        break
+    done
+fi
+exec "$HERE/usr/bin/RKARecomp" "$@"

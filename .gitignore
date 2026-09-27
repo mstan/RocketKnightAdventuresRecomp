@@ -38,3 +38,6 @@ __pycache__/
 # Release packaging output
 release/*.zip
 build-release/
+release-stage/
+release-linux/
+rom-*.cfg

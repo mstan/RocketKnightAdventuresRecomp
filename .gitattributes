@@ -1,0 +1,4 @@
+*.sh text eol=lf
+*.py text eol=lf
+*.bat text eol=crlf
+tools/release/AppRun text eol=lf

@@ -4,16 +4,15 @@ Static recompilation port of Rocket Knight Adventures (Konami, 1993,
 Sega Genesis) to native C, sharing the recompiler / runner engine with
 [SonicTheHedgehogRecomp](https://github.com/mstan/SonicTheHedgehogRecomp)
 and its siblings. The native build is a clean-room implementation (own
-VDP / bus / Z80 scheduling, ymfm FM, permissively-licensed throughout);
-the AGPL clownmdemu core is a development-only conformance oracle and is
-never part of the shipped binary.
+VDP / bus / Z80 scheduling, ymfm FM). The retired emulator oracle is no
+longer in the source tree or shipped binaries.
 
 This is the **first non-Sonic game** on the engine — and the first with
 no community disassembly, so function discovery is heuristic instead of
 disasm-seeded. That makes RKA the proving ground for the engine's
 resilience layer (see below).
 
-## Status (v0.0.1)
+## Status (v0.1.0)
 
 - Boots, full attract/title flow, opening cinematic.
 - Stage 1 playable end to end: correct background parallax and
@@ -21,8 +20,7 @@ resilience layer (see below).
   ricochet moves, end-of-stage sequence.
 - Gamepads work plug-and-play (tested with a DualSense / PS5 pad);
   keyboard and pad are active simultaneously.
-- Later stages are lightly tested — expect rough edges, not softlocks
-  (see the fallback below).
+- Later stages are lightly tested; a complete widescreen playthrough is pending.
 - Experimental custom widescreen renderer with adaptive window fitting,
   fixed aspect ratios, and configurable enemy activation.
 
@@ -51,7 +49,7 @@ crash.
   runner and clean-room video/audio backends. Generated C is ignored build output.
 - `game/` — RKA's configuration, discovery input, adapter, custom renderer
   and mod settings. See [renderer notes](game/CUSTOM-VIDEO.md).
-- `CMakeLists.txt` — native `RKARecomp` + dev-only `RKARecomp_oracle`.
+- `CMakeLists.txt` — native `RKARecomp`.
 - `scripts/link-engine.*` — optional local-dev junction (`engine-local`)
   to a shared workspace engine checkout; CMake prefers it over the
   submodule when present.
@@ -67,12 +65,29 @@ cmake -S . -B build -G "Visual Studio 17 2022" -A x64
 cmake --build build --config Release --target RKARecomp
 ```
 
-`Skipping submodule 'clownmdemu-core'` in the clone output is expected and
-correct. That core is AGPL and dev-only; nothing you build needs it, and CMake
-skips the dev-only `_oracle` targets automatically when it is absent.
-
 CMake builds the current recompiler and regenerates native C whenever the ROM,
 configuration/discovery inputs, generation options, or recompiler changes.
+
+### Release packages (Windows and Linux x64)
+
+The scripts adapted from Super Mario World build production binaries with
+all three diagnostic options disabled, stage launcher assets and license
+notices, and exclude ROMs and local settings. Windows packages verify the
+complete DLL import closure. Linux packages use pinned, hash-checked AppImage
+tools and test writable state paths. See [release instructions](RELEASING.md).
+
+```powershell
+./tools/build-windows.ps1 -Version 0.1.0
+```
+
+```sh
+bash tools/build-linux.sh --version 0.1.0 --jobs 8
+```
+
+Windows output: `release-stage/*-windows-x64-v0.1.0.zip`.
+Linux output: `release-linux/*-linux-x86_64-v0.1.0.AppImage`.
+Both include SHA-256 checksum files. Linux v0.1.0 is built on Ubuntu 24.04;
+older distributions and Steam Deck have not been validated.
 
 ## Running
 
@@ -130,6 +145,5 @@ with the custom renderer is still needed.
 ## License
 
 Engine and port are PolyForm Noncommercial 1.0.0; bundled third-party
-components are permissively licensed (see `THIRD-PARTY-LICENSES.md` in
-the engine / release zip). Dev-only oracle builds link AGPL code and are
-never distributed.
+components retain their own licenses (see `THIRD-PARTY-LICENSES.md` and
+`licenses/` inside each release).
