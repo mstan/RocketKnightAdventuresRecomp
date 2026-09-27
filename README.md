@@ -23,6 +23,8 @@ resilience layer (see below).
   keyboard and pad are active simultaneously.
 - Later stages are lightly tested — expect rough edges, not softlocks
   (see the fallback below).
+- Experimental custom widescreen renderer with adaptive window fitting,
+  fixed aspect ratios, and configurable enemy activation.
 
 ### The tier-3 interpreter fallback (always on for RKA)
 
@@ -46,8 +48,9 @@ crash.
 ## Layout
 
 - `segagenesisrecomp/` — the shared engine (submodule): recompiler,
-  runner, clean-room video/audio backends, and per-game configuration under
-  `segagenesisrecomp/rka/`. Generated C is ignored build output.
+  runner and clean-room video/audio backends. Generated C is ignored build output.
+- `game/` — RKA's configuration, discovery input, adapter, custom renderer
+  and mod settings. See [renderer notes](game/CUSTOM-VIDEO.md).
 - `CMakeLists.txt` — native `RKARecomp` + dev-only `RKARecomp_oracle`.
 - `scripts/link-engine.*` — optional local-dev junction (`engine-local`)
   to a shared workspace engine checkout; CMake prefers it over the
@@ -59,7 +62,7 @@ crash.
 ```cmd
 git clone --recursive https://github.com/mstan/RocketKnightAdventuresRecomp.git
 cd RocketKnightAdventuresRecomp
-copy path\to\rka.bin segagenesisrecomp\rka\rka.bin
+copy path\to\rka.bin game\rka.bin
 cmake -S . -B build -G "Visual Studio 17 2022" -A x64
 cmake --build build --config Release --target RKARecomp
 ```
@@ -79,6 +82,38 @@ own legally obtained ROM dump of Rocket Knight Adventures (USA), 1 MB:
 ```cmd
 RKARecomp.exe rka.bin --no-launcher
 ```
+
+### Adaptive widescreen
+
+Open **Mods → Widescreen**, enable it, and leave **Aspect ratio** on
+**Adaptive (fit window)**. The renderer follows the window as it resizes;
+16:9, 21:9 and 32:9 presets are also available. Terrain is reconstructed from
+RKA's level layout, with live tile art, palettes, scrolling and actor mappings.
+The HUD stays centered and pixels keep their proportions.
+
+**Enemy activation** offers:
+
+- **Expanded Spawn Range** (default): activates and retains enemies across the
+  wider view. This changes encounter timing and can make more enemies active.
+- **Original Spawn Range**: keeps the original camera's spawn and despawn
+  behavior. Enemies can appear inside the wider view as they enter that range.
+
+The view stops at level boundaries, and narrow windows retain at least the
+original 320-pixel playfield. Adaptive has no 32:9 cap. Special presentation
+modes that cannot use the level renderer retain the original centered image.
+Disabling Widescreen restores the native renderer and activation rules.
+
+Settings are saved when launching: aspect/enabled state in `settings.ini`,
+enemy activation in `rka-video.ini` beside it. For scripted runs:
+
+```cmd
+RKARecomp.exe rka.bin --no-launcher --widescreen fit
+RKARecomp.exe rka.bin --no-launcher --widescreen 21:9
+```
+
+Automated checks cover the castle demo, outdoor stage 1, scrolling, earlier
+enemy activation and live resizing. A complete playthrough of later stages
+with the custom renderer is still needed.
 
 ### Controls
 

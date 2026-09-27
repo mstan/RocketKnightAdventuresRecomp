@@ -1,0 +1,89 @@
+/*
+ * rka_spec.c — GameSpec for Rocket Knight Adventures (Konami, 1993), USA NTSC.
+ *
+ * ROM layout: flat 1 MB at $000000-$0FFFFF, identity-mapped, no SRAM.
+ * Boot/dispatch (from the 68K vector table — see game.toml):
+ *   EntryPoint  = $000208   (reset PC; does not override the reset SSP)
+ *   VInt (VBlank ISR) = $0003D4
+ *   HInt (HBlank ISR) = $FFFFE010  (RAM-installed trampoline — resolved at
+ *                                   runtime via the dispatch / RAM-trampoline
+ *                                   path; no static func_ exists for RAM code.)
+ *
+ * Game-owned renderer and enemy activation live beside this adapter.
+ * Dispatchers use recomp_call_addr(),
+ * which routes through the generated dispatch table (and the Tier-3 floor on a
+ * miss) — same pattern as sandk_spec.c.
+ */
+#include "game_spec.h"
+#include "genesis_runtime.h"
+#include "rka_video.h"
+#include "rka_options.h"
+
+#include <stddef.h>
+#include <stdint.h>
+#ifdef GENESIS_Z80_RECOMP
+#include "rkaz80_step.h"
+#endif
+
+/* ---- Entry-point / interrupt dispatchers (canonical org-0 addresses) ---- */
+static void rka_call_entry_point(void) { recomp_call_addr(0x000208u); }
+static void rka_call_vblank(void)      { recomp_call_addr(0x0003D4u); }
+/* H-int is a RAM-installed trampoline ($FFFFE010); recomp_call_addr resolves it
+ * at runtime (RAM JMP-trampoline path). Harmless if the game enables H-int only
+ * later (it won't fire during early boot). */
+static void rka_call_hblank(void)      { recomp_call_addr(0xFFFFE010u); }
+
+static const GameDebugCommand rka_commands[] = {
+    { "custom_video", rka_video_command },
+};
+const GameSpec g_game_spec = {
+    .video                  = &rka_video,
+    .load_settings          = rka_load_settings,
+    .mods                   = rka_mods,
+    .netplay_config_image    = rka_config_image,
+    .netplay_config_adopt    = rka_config_adopt,
+    .instruction_hook       = rka_video_hook,
+    .display_name           = "Rocket Knight Adventures",
+    .short_name             = "RKA",
+
+    /* Rocket Knight Adventures (USA), no-intro CRC32 A6EFEC47. Regional
+     * variants have different code/data layouts and cannot share this recomp. */
+    .expected_rom_crc32     = 0xA6EFEC47u,
+    .expected_rom_size      = 0x100000u,   /* 1 MB */
+#ifdef GENESIS_Z80_RECOMP
+    .z80_step               = rkaz80_step,
+#endif
+
+    /* RKA has no community disasm, so static discovery is heuristic and
+     * WILL have holes (state-table case bodies never reached during attract
+     * capture — the full-charge ricochet spin-lock at $00D84C). Run the
+     * tier-3 miss fallback always-on: a miss executes correctly on the
+     * interpreter capsule and feeds floor_coverage.toml for the next regen. */
+    .tier3_floor_default    = 1,
+
+    /* No battery SRAM (header carries no "RA"); sram_start/end stay 0. */
+
+    .call_entry_point       = rka_call_entry_point,
+    .call_vblank            = rka_call_vblank,
+    .call_hblank            = rka_call_hblank,
+    .resume_main_loop_pc    = 0u,    /* main-loop PC unknown — dispatcher re-entry */
+    .save_resume_pc         = NULL,
+    .dispatch_main_loop_pc  = 0u,
+    .call_periodic          = NULL,
+
+    .on_post_reset          = rka_video_reset,
+    .on_frame_pre           = NULL,
+    .on_frame_post          = NULL,
+    .on_hblank              = NULL,
+
+    .handle_arg             = NULL,
+    .arg_usage              = NULL,
+    .dispatch_override      = NULL,
+
+    .fill_frame_record      = NULL,
+    .frame_record_version   = 0u,
+
+    .commands               = rka_commands,
+    .command_count          = sizeof(rka_commands)/sizeof(rka_commands[0]),
+
+};

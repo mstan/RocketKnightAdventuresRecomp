@@ -24,6 +24,9 @@ engine-local/
 run.err
 run.out
 settings.ini
+rka-video.ini
+*.ram
+*.vram
 rom.cfg
 debug.ini
 dispatch_misses.log

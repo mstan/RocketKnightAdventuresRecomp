@@ -1,4 +1,4 @@
-cmake_minimum_required(VERSION 3.16)
+cmake_minimum_required(VERSION 3.19)
 project(RocketKnightAdventuresRecomp C)
 
 set(CMAKE_C_STANDARD 11)
@@ -13,9 +13,8 @@ set(CMAKE_C_STANDARD 11)
 # undiscovered functions — the thing Sonic's full coverage never exercised).
 #
 # Engine (runner + recompiler) comes from the canonical
-# segagenesisrecomp checkout, reached through a local directory junction
-# (./segagenesisrecomp -> ../segagenesisrecomp); per-game data lives in
-# segagenesisrecomp/rka/. Launcher omitted for bring-up (boots via CLI ROM arg).
+# segagenesisrecomp submodule (or explicit local override). Game-owned
+# configuration, renderer and adapter live in game/.
 # ---------------------------------------------------------------------------
 
 set(GENESIS_RECOMP_ROOT "" CACHE PATH
@@ -130,7 +129,7 @@ endif()
 # add_recomp_mode(<target> <prefix> <game_dir> <rom> <native_port> <unused>)
 include("${RECOMP_ROOT}/cmake/GenesisRecompGenerated.cmake")
 function(add_recomp_mode TARGET PREFIX GAME_DIR ROM PORT_NATIVE PORT_ORACLE)
-    set(GAME "${RECOMP_ROOT}/${GAME_DIR}")
+    set(GAME "${GAME_DIR}")
     genesisrecomp_add_generated_sources(
         GENERATED_SOURCES "${PREFIX}" "${GAME_DIR}" "${ROM}"
         REVERSE_DEBUG "${SONIC_REVERSE_DEBUG}")
@@ -180,13 +179,15 @@ function(add_recomp_mode TARGET PREFIX GAME_DIR ROM PORT_NATIVE PORT_ORACLE)
     endforeach()
 endfunction()
 
-# --- Mode: Rocket Knight Adventures (USA, 1 MB @ $000000) — bring-up ---------
-add_recomp_mode(RKARecomp rka rka rka.bin 4390 4391)
+# --- Mode: Rocket Knight Adventures (USA, 1 MB @ $000000) -------------------
+add_recomp_mode(RKARecomp rka "${CMAKE_CURRENT_SOURCE_DIR}/game" rka.bin 4390 4391)
+target_sources(RKARecomp PRIVATE game/rka_video.c game/rka_options.c)
 
 # Shared recomp-ui (Dear ImGui) pre-boot launcher — NET-NEW for RKA (this repo
 # never shipped a launcher). Defines RECOMP_LAUNCHER, un-gating the runner's
 # main.c seam; links system GL; stages assets/ next to the exe. Native (shipped)
 # target only.
+set(RECOMP_UI_ENABLE_MODS ON CACHE BOOL "Show RKA's built-in widescreen settings")
 include(${CMAKE_SOURCE_DIR}/recomp-ui/recomp_ui.cmake)
 recomp_target_launcher_ui(RKARecomp CONSOLE genesis
     BOXART ${CMAKE_SOURCE_DIR}/boxart.tga)
