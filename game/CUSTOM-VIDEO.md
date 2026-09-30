@@ -51,6 +51,13 @@ continues its live floor strip. Outside the native width, other non-layout
 scenes draw plane B without stale streamed plane A tiles. When the native and
 wide cameras align, the original 320-pixel image
 is copied back over the reconstruction to preserve raster and boss effects.
+The flying city (stage index 23) is an endless set piece with a 256-pixel
+background map. Beyond 512 pixels of view width, its repeated city art fades
+into a vertically smoothed average of its own colors outside the native view.
+The 320-pixel play area is copied back exactly, and moving actors remain sharp.
+The Continue screen retains map mode 1 but has an invalid camera limit; it is
+classified as a presentation screen and filled with the VDP backdrop around
+its centered native image.
 At room walls where the wider layout exposes tiles from an adjacent room,
 the nearest live wall strip continues into that side margin. This is scoped
 to the room stage indices confirmed by the supplied stage 1-4 saves; the

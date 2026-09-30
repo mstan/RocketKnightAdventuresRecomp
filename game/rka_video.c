@@ -66,7 +66,10 @@ static int scene_active(const uint8_t *r)
 static int vehicle_active(const uint8_t *r)
 {
     unsigned mode = r16(r,0xB002);
-    return (mode == 4 || mode == 7) && r16(r,0xB1D0) == 1;
+    /* The Continue screen retains map mode 1 but invalidates the level's
+     * camera limit. Stage 23 is the exceptional, endlessly scrolling city. */
+    return (mode == 4 || mode == 7) && r16(r,0xB1D0) == 1 &&
+           (r16(r,0xB1E8) < 0x8000 || r16(r,0xFB12) == 23);
 }
 static int stage_width(const uint8_t *r) { return (int)r16(r, 0xB1E8) + 320; }
 static int view_left(int camera, int width, const uint8_t *r)
@@ -409,6 +412,11 @@ static void scanline(const GVDP *v, int line, const uint32_t *native, int nw,
         memcpy(out + (width - nw) / 2, native, (size_t)nw * sizeof *out);
         return;
     }
+    if (!level) {
+        for (int x = 0; x < width; ++x) out[x] = backdrop;
+        memcpy(out + (width - nw) / 2, native, (size_t)nw * sizeof *out);
+        return;
+    }
     unsigned hs = (v->reg[13] & 63u) << 10;
     int hm = v->reg[11] & 3, hi = hm == 0 ? 0 : hm == 2 ? line & ~7 : line;
     int ha = (int16_t)r16(v->vram, hs + hi * 4);
@@ -466,7 +474,42 @@ static void scanline(const GVDP *v, int line, const uint32_t *native, int nw,
             if (pixel(v,a,wx,wy) != pixel(v,expected,wx,wy)) ++s_terrain_errors;
         }
     }
-    if (!level) { memcpy(out+(width-nw)/2,native,(size_t)nw*sizeof *out); return; }
+    if (stage == 23 && map == 1 && width > 512) {
+        /* The flying-city set piece has only a 256px repeating background,
+         * even though its camera has no finite level limit. Across a very
+         * wide view, five identical skylines strobe behind the player. Keep
+         * the native view intact, then dissolve the repeats into a smoothed
+         * average of the city's colors before drawing the moving actors. */
+        static unsigned fog_red, fog_green, fog_blue;
+        unsigned red=0, green=0, blue=0;
+        int sample=origin < 0 ? 0 : origin;
+        int count=width-sample < 256 ? width-sample : 256;
+        for (int x=sample;x<sample+count;++x) {
+            red += (out[x] >> 16) & 255u;
+            green += (out[x] >> 8) & 255u;
+            blue += out[x] & 255u;
+        }
+        if (count > 0) {
+            red /= (unsigned)count; green /= (unsigned)count; blue /= (unsigned)count;
+            if (line <= 32) { fog_red=red; fog_green=green; fog_blue=blue; }
+            else {
+                fog_red=(fog_red*23u+red)/24u;
+                fog_green=(fog_green*23u+green)/24u;
+                fog_blue=(fog_blue*23u+blue)/24u;
+            }
+            for (int x=0;x<width;++x) {
+                int distance=x<origin ? origin-x : x>=origin+nw ? x-origin-nw+1 : 0;
+                if (!distance) continue;
+                unsigned mix=distance < 128 ? (unsigned)distance*2u : 256u;
+                uint32_t old=out[x];
+                unsigned r=((old>>16&255u)*(256u-mix)+fog_red*mix)>>8;
+                unsigned g=((old>>8&255u)*(256u-mix)+fog_green*mix)>>8;
+                unsigned b=((old&255u)*(256u-mix)+fog_blue*mix)>>8;
+                out[x]=0xFF000000u | r<<16 | g<<8 | b;
+                if (mix >= 128) s_priority[x]=0;
+            }
+        }
+    }
     /* Player/HUD pieces occupy the reserved SAT prefix; actor mappings
      * captured above replace the remaining SAT, including offscreen pieces. */
     unsigned sat = (v->reg[5] & 0x7Eu) << 9, index = 0;
@@ -510,7 +553,7 @@ static void scanline(const GVDP *v, int line, const uint32_t *native, int nw,
      * from our reconstruction; only the added side pixels need rebuilding. */
     int window_y=(v->reg[18]&31)*8;
     int window_line=(v->reg[18]&128) ? line>=window_y : line<window_y;
-    if (!window_line && origin == center)
+    if (!window_line && (origin == center || (stage == 23 && map == 1)))
         memcpy(out+origin,native,(size_t)nw*sizeof *out);
     /* Several room transitions keep the previous room's layout entries in
      * the extra columns even though the native edge is a solid room wall.

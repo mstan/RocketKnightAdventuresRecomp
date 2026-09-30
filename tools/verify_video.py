@@ -15,13 +15,16 @@ p = argparse.ArgumentParser(description=__doc__)
 p.add_argument("--exe", type=Path, required=True)
 p.add_argument("--rom", type=Path, required=True)
 p.add_argument("--out", type=Path, required=True)
+p.add_argument("--continue-save", type=Path,
+               help="Optional local save captured on the Continue screen")
 a = p.parse_args()
 root = Path(__file__).resolve().parents[1]
 out = a.out.resolve()
 out.mkdir(parents=True, exist_ok=False)
 
 
-def capture(name, mode, spawn="original", castle=False, resize=False, route=None, frames=None):
+def capture(name, mode, spawn="original", castle=False, resize=False, route=None, frames=None,
+            level=True):
     dest = out / name
     cmd = [sys.executable, str(root / "tools/capture_rka.py"),
            "--exe", str(a.exe.resolve()), "--rom", str(a.rom.resolve()),
@@ -34,8 +37,13 @@ def capture(name, mode, spawn="original", castle=False, resize=False, route=None
     (out / f"{name}.log").write_text(result.stdout + result.stderr, encoding="utf-8")
     assert result.returncode == 0, f"{name} failed; see {out / (name + '.log')}"
     diag = json.loads((dest / "diagnostics.json").read_text())
-    assert diag["dispatch_miss_info"]["count"] == 0, diag
-    if mode != "off":
+    if level:
+        assert diag["dispatch_miss_info"]["count"] == 0, diag
+    else:
+        # The longer attract run legitimately exercises interpreter-floor
+        # dispatches. None may be a new, unresolved address.
+        assert diag["dispatch_miss_info"]["unique_count"] == 0, diag
+    if mode != "off" and level:
         assert diag["custom_video"]["terrain_checks"] > 0, diag
         assert diag["custom_video"]["terrain_errors"] == 0, diag
         assert diag["custom_video"]["sprite_overflow"] == 0, diag
@@ -130,5 +138,41 @@ for ordinary,ultra in [(idle,ultra_idle),(walk,ultra_walk)]:
     for ext in ("ram","vram"):
         assert (ordinary/f"scene.{ext}").read_bytes()==(ultra/f"scene.{ext}").read_bytes()
 report["ultrawide_castle"]={"width":ui.width,"castle_matches":True,"ram_vram_equal":True}
+
+# The attract loop reaches the flying city at frame 4501. Its finite tilemap
+# used to repeat across a 1392px view (the owner's 2785x448 window at 2x scale).
+city_native = capture("city-native", "off", castle=True, frames=4500)
+city_wide = capture("city-ultrawide", "1392:224", castle=True, frames=4500)
+for ext in ("ram", "vram"):
+    assert (city_native / f"scene.{ext}").read_bytes() == (city_wide / f"scene.{ext}").read_bytes(), ext
+cn = Image.open(city_native / "scene.png").convert("RGB")
+cw = Image.open(city_wide / "scene.png").convert("RGB")
+assert cw.width == 1392
+assert ImageChops.difference(cn.crop((0,32,320,224)), cw.crop((0,32,320,224))).getbbox() is None
+for y in range(40, 224):
+    assert len(cw.crop((600,y,cw.width,y+1)).getcolors(maxcolors=2) or []) == 1, y
+
+report["ultrawide_presentation"] = {"city_native_pixels_equal": True,
+    "city_extra_background_diffused": True}
+if a.continue_save:
+    menu_route = out / "continue.input"
+    menu_route.write_text(f"WAIT 600\nLOAD_STATE {a.continue_save.resolve().as_posix()}\nWAIT 3\n")
+    menu_native = capture("continue-native", "off", route=menu_route, frames=0,
+                          level=False)
+    menu_wide = capture("continue-ultrawide", "1392:224", route=menu_route,
+                        frames=0, level=False)
+    for ext in ("ram", "vram"):
+        assert (menu_native / f"scene.{ext}").read_bytes() == (menu_wide / f"scene.{ext}").read_bytes(), ext
+    mn = Image.open(menu_native / "scene.png").convert("RGB")
+    mw = Image.open(menu_wide / "scene.png").convert("RGB")
+    center = (mw.width - 320) // 2
+    assert ImageChops.difference(mn, mw.crop((center,0,center+320,224))).getbbox() is None
+    for y in range(224):
+        left = mw.crop((0,y,center,y+1)).getcolors(maxcolors=2) or []
+        right = mw.crop((center+320,y,mw.width,y+1)).getcolors(maxcolors=2) or []
+        assert len(left) == len(right) == 1 and left[0][1] == right[0][1], y
+    report["ultrawide_presentation"]["continue_centered"] = True
+
 (out / "verification.json").write_text(json.dumps(report, indent=2), encoding="utf-8")
-print(f"PASS: native RAM/VRAM/pixels, activation, resize, full HUD margins, castle/plane parallax; {out / 'verification.json'}")
+print(f"PASS: native parity, activation, resize, HUD, castle parallax, ultrawide city"
+      f"{' and Continue screen' if a.continue_save else ''}; {out / 'verification.json'}")
