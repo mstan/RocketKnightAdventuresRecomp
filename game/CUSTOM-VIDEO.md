@@ -41,14 +41,21 @@ drawing next-frame actors over the current frame's terrain. Sprite ordering,
 flips, palette selection, foreground groups and the separate player SAT prefix
 are retained. The two native HUD masking sentinels remain invisible.
 
-The native window/HUD counters stay centered. The added margins extend only
-the original 8-pixel gold cornice, with scenery visible beneath it. There are
-no empty framed panels, repeated counters or stretched art. Because the native
-background rows hidden by the HUD contain opaque black tiles, the margins
-extend the first exposed background tile row upward, retaining its live art,
-palette and scroll strip. Menus and non-layout scenes retain their
-native center; surrounding planes can fill the added width. Interlace and
-shadow/highlight scenes use a centered native fallback. The native 320-pixel
+The native window/HUD counters stay centered. Its undecorated 32-pixel border
+repeats across the added margins for all 32 HUD rows, covering water and other
+world art that used to show through below the cornice. Counters and hearts do
+not repeat. Menus and unsupported presentation scenes retain their native
+center. Vehicle scenes (map mode 1) use their live planes and actor mappings;
+the first water ride uses a known-good streamed sky strip, and the rail ride
+continues its live floor strip. Outside the native width, other non-layout
+scenes draw plane B without stale streamed plane A tiles. When the native and
+wide cameras align, the original 320-pixel image
+is copied back over the reconstruction to preserve raster and boss effects.
+At room walls where the wider layout exposes tiles from an adjacent room,
+the nearest live wall strip continues into that side margin. This is scoped
+to the room stage indices confirmed by the supplied stage 1-4 saves; the
+stage-4 boss uses narrow 8-pixel edge strips to avoid repeating its limbs.
+Interlace and shadow/highlight scenes use a centered native fallback. The native 320-pixel
 playfield is the minimum width. Fixed ratios and Adaptive may exceed 32:9.
 
 Scene snapshots are presentation caches. Simulation state stays in the
@@ -58,7 +65,10 @@ the caches, and an unmatched SAT invalidates a cached scene after transitions.
 ## Spawn ranges
 
 Original Spawn Range leaves the game's simulation hooks inert. Expanded
-Spawn Range widens both placement loading and horizontal object culling.
+Spawn Range widens placement loading for tiled scenes and horizontal object
+culling for both tiled and map-mode-1 vehicle scenes.
+The vehicle enemy scripts still choose their native spawn times, so their
+arrival can remain visibly tied to the original 4:3 area.
 The original cell loaders, allocator, fixed slots, remembered placement bits
 and respawn routines still own the objects. The native object pool remains
 finite, so very wide views can exhaust it; there is no CPU speed multiplier.
@@ -138,8 +148,8 @@ free-running debug server. It asserts:
   run), using ten successful native allocations, without dispatch misses.
 - Adaptive resizes through 1600×900, 1234×567, 1000×1000, 3840×720 and 640×448,
   producing widths 398, 488, 320, 1195 and 320, then disables successfully.
-- The HUD's gold top trim fills the wider margins, with scenery rather than
-  black panels below it; its centered counters remain pixel identical.
+- The HUD's full border fills the wider margins while its centered counters
+  remain pixel identical.
 - Idle versus walking 80 frames from stage start keeps the wider view pinned
   at zero while the native camera moves from 2 to 235. Background strips and
   castle, flying detail, and clear cloud/mountain image regions agree at the

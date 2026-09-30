@@ -82,13 +82,13 @@ original, expanded = actor_count(stage_wide), actor_count(stage_expanded)
 assert expanded > original, (original, expanded)
 diag = json.loads((stage_expanded / "diagnostics.json").read_text())["custom_video"]
 assert diag["spawned"] > 0 and diag["spawn_mode"] == "expanded", diag
-# Keep the centered HUD, with a slim gold cornice over visible scenery.
+# Keep the centered counters and cover both HUD margins through all 32 rows.
 im = Image.open(stage_expanded / "scene.png").convert("RGB")
 center = (im.width - 320) // 2
 assert im.crop((16,0,center,8)).getbbox() is not None
-for box in [(16,8,center,32),(center+320,8,im.width-16,32)]:
-    margin=im.crop(box)
-    assert sum(n for n,p in margin.getcolors(margin.width*margin.height) if p==(0,0,0)) < margin.width*margin.height//20
+for y in range(32):
+    for x in list(range(center)) + list(range(center+320,im.width)):
+        assert im.getpixel((x,y)) == im.getpixel((center+((x-center)&31),y)), (x,y)
 report["activation"] = {"original_actors": original, "expanded_actors": expanded,
                         "successful_spawns": diag["spawned"]}
 report["resize"] = json.loads((stage_expanded / "resize.json").read_text())
@@ -131,4 +131,4 @@ for ordinary,ultra in [(idle,ultra_idle),(walk,ultra_walk)]:
         assert (ordinary/f"scene.{ext}").read_bytes()==(ultra/f"scene.{ext}").read_bytes()
 report["ultrawide_castle"]={"width":ui.width,"castle_matches":True,"ram_vram_equal":True}
 (out / "verification.json").write_text(json.dumps(report, indent=2), encoding="utf-8")
-print(f"PASS: native RAM/VRAM/pixels, activation, resize, slim HUD, castle/plane parallax; {out / 'verification.json'}")
+print(f"PASS: native RAM/VRAM/pixels, activation, resize, full HUD margins, castle/plane parallax; {out / 'verification.json'}")

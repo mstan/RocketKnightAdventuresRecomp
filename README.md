@@ -104,15 +104,17 @@ Open **Mods → Widescreen**, enable it, and leave **Aspect ratio** on
 **Adaptive (fit window)**. The renderer follows the window as it resizes;
 16:9, 21:9 and 32:9 presets are also available. Terrain is reconstructed from
 RKA's level layout, with live tile art, palettes, scrolling and actor mappings.
-The HUD counters stay centered, with slim gold trim across the top and
-scenery beneath the side margins. Pixels keep their proportions. Background
+The HUD counters stay centered, with the window border covering the full
+height of both side margins. Pixels keep their proportions. Background
 planes and the castle scenery follow the wider camera at the level edges
 while independent cloud motion and scenery animation are retained.
 
 **Enemy activation** offers:
 
 - **Expanded Spawn Range** (default): activates and retains enemies across the
-  wider view. This changes encounter timing and can make more enemies active.
+  wider tiled levels and retains vehicle enemies across the wider view. This
+  changes encounter timing and can make more enemies active. Vehicle scripts
+  still use their original spawn timing.
 - **Original Spawn Range**: keeps the original camera's spawn and despawn
   behavior. Enemies can appear inside the wider view as they enter that range.
 

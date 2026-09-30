@@ -63,6 +63,11 @@ static int scene_active(const uint8_t *r)
     return (mode == 4 || mode == 7) && map >= 2 && map <= 8 &&
            r32(r, 0xB1F6) && r32(r, 0xB1FA);
 }
+static int vehicle_active(const uint8_t *r)
+{
+    unsigned mode = r16(r,0xB002);
+    return (mode == 4 || mode == 7) && r16(r,0xB1D0) == 1;
+}
 static int stage_width(const uint8_t *r) { return (int)r16(r, 0xB1E8) + 320; }
 static int view_left(int camera, int width, const uint8_t *r)
 {
@@ -290,9 +295,14 @@ int rka_video_hook(uint32_t pc)
         s_build.serial = ++s_serial;
         s_history[s_serial % 3] = s_build;
     }
-    if (!s_expanded || s_requested_width <= 320 || !scene_active(g_ram)) return 0;
-    if (pc == 0x113D8) { spawn_visible();return 1; }
+    if (!s_expanded || s_requested_width <= 320) return 0;
+    if (pc == 0x113D8 && scene_active(g_ram)) { spawn_visible();return 1; }
     if (pc == 0x115EA) ++s_spawned;
+    /* Vehicle and other map-mode-1 scenes have no tiled placement map, but
+     * they still use the normal object culling path. Keep their live actors
+     * across the expanded view instead of deleting them at the 4:3 edge. */
+    unsigned map = r16(g_ram,0xB1D0);
+    if (map < 1 || map > 9) return 0;
     int camera = r16(g_ram, 0xB1D2), left = view_left(camera, s_requested_width, g_ram);
     int end = stage_width(g_ram);
     int span = s_requested_width < end ? s_requested_width : end;
@@ -350,16 +360,15 @@ static void draw_sprite(const GVDP *v, const Sprite *s, int line, uint32_t *out,
     }
 }
 
-static void draw_hud_trim(int line, const uint32_t *native,
-                           uint32_t *out, int width)
+static void draw_hud_margin(const uint32_t *native, uint32_t *out, int width)
 {
     int center = (width - 320) / 2;
-    /* Extend only the original 8px cornice. Keep the already-composited
-     * scenery below it rather than creating long empty framed panels. */
-    if (line >= 8) return;
+    /* Repeat the undecorated left border of the live 32px window across both
+     * margins. Its four tiles carry the cornice and opaque side panel but no
+     * counters or hearts; water cannot show through the lower HUD rows. */
     for (int x=0;x<width;++x) {
         if (x >= center && x < center + 320) continue;
-        out[x] = native[32 + ((unsigned)(x-center) & 31u)];
+        out[x] = native[(unsigned)(x-center) & 31u];
     }
 }
 static void scanline(const GVDP *v, int line, const uint32_t *native, int nw,
@@ -379,7 +388,8 @@ static void scanline(const GVDP *v, int line, const uint32_t *native, int nw,
         select_scene(v);
     }
     const uint8_t *r = s_scene ? s_scene->ram : g_ram;
-    int level = scene_active(r) && scene_active(g_ram);
+    int level = (scene_active(r) && scene_active(g_ram)) ||
+                (vehicle_active(r) && vehicle_active(g_ram));
     if (nw != 320 || !(v->reg[1] & 64) || (v->reg[12] & 14) || s_capacity < width) {
         for (int x = 0; x < width; ++x) out[x] = !(v->reg[1] & 64) ? native[0] : backdrop;
         memcpy(out + (width - nw) / 2, native, (size_t)nw * sizeof *out);
@@ -401,6 +411,7 @@ static void scanline(const GVDP *v, int line, const uint32_t *native, int nw,
      * horizontal scroll remains visible instead of cancelling itself out. */
     int origin = level ? s_camera - s_left : (width - nw) / 2;
     int center = (width - nw) / 2;
+    unsigned map = r16(r,0xB1D0), stage = r16(r,0xFB12);
     int bg_h = level && hm == 2 ? background_scroll(r,bg_line,hb,center-origin) : hb;
     if (line == 128) s_bg_x = -center - bg_h;
     s_origin = origin;
@@ -416,7 +427,19 @@ static void scanline(const GVDP *v, int line, const uint32_t *native, int nw,
         int va = v->vsram[col] & 1023, vb = v->vsram[col+1] & 1023;
         int wy = unwrap(va,r16(r,0xB1D6)) + line;
         int bx = x - center - bg_h, by = bg_line + vb;
-        unsigned a = level ? terrain(r,wx,wy) : plane(v,ba,nx-ha,line+va);
+        int edge_x = nx < 0 ? (nx & 31) : nx >= nw ? nw-32+((nx-nw)&31) : nx;
+        /* The water ride streams plane A through the native window. Reuse a
+         * known-good 32px sky strip for its newly exposed side columns. */
+        int vehicle_sky = level && map == 1 && stage == 2 &&
+                          (nx < 0 || nx >= nw);
+        if (vehicle_sky) bx = 128 + (nx & 31) + origin - center - bg_h;
+        /* Non-layout scenes stream only the native 320px plane A window.
+         * Beyond it, the wrapped name table can contain stale boss tiles or
+         * the previous room. Let the live plane B scenery fill that space. */
+        unsigned a = level && map != 1 ? terrain(r,wx,wy) :
+                     vehicle_sky ? plane(v,ba,128+(nx&31)-ha,line+va) :
+                     level && map == 1 ? plane(v,ba,edge_x-ha,line+va) :
+                     nx >= 0 && nx < nw ? plane(v,ba,nx-ha,line+va) : 0;
         unsigned b = plane(v,bb,bx,by);
         unsigned ap = bg_line == line ? pixel(v,a,wx,wy) : 0;
         unsigned bp = pixel(v,b,bx,by);
@@ -468,12 +491,37 @@ static void scanline(const GVDP *v, int line, const uint32_t *native, int nw,
             if(!s_scene->sprites[i].front)
                 draw_sprite(v,&s_scene->sprites[i],line,out,width,origin,
                             s_scene->camera_x,s_scene->camera_y,palette);
-    /* The native window is a screen-space HUD, never a repeated world map. */
+    /* Preserve the hardware-rendered original viewport exactly. Raster
+     * effects, special boss sprites and streamed tile changes can differ
+     * from our reconstruction; only the added side pixels need rebuilding. */
     int window_y=(v->reg[18]&31)*8;
-    if ((v->reg[18]&128) ? line>=window_y : line<window_y) {
+    int window_line=(v->reg[18]&128) ? line>=window_y : line<window_y;
+    if (!window_line && origin == center)
+        memcpy(out+origin,native,(size_t)nw*sizeof *out);
+    /* Several room transitions keep the previous room's layout entries in
+     * the extra columns even though the native edge is a solid room wall.
+     * Continue the live 32px wall strip at those audited stage boundaries. */
+    if (!window_line && level) {
+        int wall_left = stage == 4 || stage == 11 || stage == 15 || stage == 41;
+        int wall_right = stage == 6 || stage == 40 || stage == 15;
+        if (wall_left)
+            for (int x=0;x<origin && x<width;++x)
+                out[x] = native[(unsigned)(x-origin) & (stage == 15 ? 7u : 31u)];
+        if (wall_right)
+            for (int x=origin+nw;x<width;++x)
+                out[x] = native[nw-(stage == 15 ? 8 : 32)+
+                                ((x-origin-nw)&(stage == 15 ? 7 : 31))];
+        /* The rail is a native strip effect, not a level-map tile. */
+        if (stage == 7 && map == 1 && line >= 214)
+            for (int x=0;x<width;++x)
+                if (x < origin || x >= origin+nw)
+                    out[x] = native[16+((unsigned)x&15u)];
+    }
+    /* The native window is a screen-space HUD, never a repeated world map. */
+    if (window_line) {
         int start=(width-nw)/2;
         if (window_y == 32 && !(v->reg[18]&128))
-            draw_hud_trim(line,native,out,width);
+            draw_hud_margin(native,out,width);
         memcpy(out+start,native,(size_t)nw*sizeof *out);
     }
 }
