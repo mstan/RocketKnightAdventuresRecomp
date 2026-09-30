@@ -1,4 +1,4 @@
-Rocket Knight Adventures Recomp v0.1.3
+Rocket Knight Adventures Recomp v0.1.4
 =====================================
 
 Bring your own Rocket Knight Adventures (USA) ROM: 1,048,576 bytes,
@@ -9,7 +9,7 @@ Windows x64: extract the entire ZIP into a writable folder, then launch
 RKARecomp.exe. Select your ROM in the launcher.
 
 Linux x86_64: put the AppImage in a writable folder, make it executable with
-chmod +x RocketKnightAdventuresRecomp-linux-x86_64-v0.1.3.AppImage, then run it.
+chmod +x RocketKnightAdventuresRecomp-linux-x86_64-v0.1.4.AppImage, then run it.
 Built on Ubuntu 24.04 (glibc 2.39); requires a compatible Linux installation
 and working OpenGL. If FUSE is unavailable, run with --appimage-extract-and-run.
 The launcher uses zenity, kdialog or yad for its file picker. Alternatively,

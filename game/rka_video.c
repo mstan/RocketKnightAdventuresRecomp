@@ -301,6 +301,18 @@ int rka_video_hook(uint32_t pc)
     if (!s_expanded || s_requested_width <= 320) return 0;
     if (pc == 0x113D8 && scene_active(g_ram)) { spawn_visible();return 1; }
     if (pc == 0x115EA) ++s_spawned;
+    if (pc == 0x21B4) {
+        unsigned o = g_cpu.A[1] & 65535u;
+        int x = (int16_t)r16(g_ram,o+0x28);
+        /* Expanded culling keeps distant apples alive for the wide renderer,
+         * but their native SAT X is only 9 bits. Skip the hardware mapping
+         * when its X would wrap into the original 320px viewport. Their
+         * unwrapped mapping was already captured at $21AE for the sides. */
+        if (r16(g_ram,o) == 0x64 && !(g_ram[o+0x27] & 4) &&
+            (x < 0 || x >= 512))
+            g_cpu.SR &= (uint16_t)~SR_C;
+        return 0;
+    }
     /* Vehicle and other map-mode-1 scenes have no tiled placement map, but
      * they still use the normal object culling path. Keep their live actors
      * across the expanded view instead of deleting them at the 4:3 edge. */

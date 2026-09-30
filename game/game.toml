@@ -162,6 +162,9 @@ kind = "game_hook"
 addr = 0x0021AE
 kind = "game_hook"
 [[widescreen_site]]
+addr = 0x0021B4
+kind = "game_hook"
+[[widescreen_site]]
 addr = 0x002358
 kind = "game_hook"
 [[widescreen_site]]

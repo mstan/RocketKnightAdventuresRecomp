@@ -17,6 +17,8 @@ p.add_argument("--rom", type=Path, required=True)
 p.add_argument("--out", type=Path, required=True)
 p.add_argument("--continue-save", type=Path,
                help="Optional local save captured on the Continue screen")
+p.add_argument("--apple-save", type=Path,
+               help="Optional local stage-1 save with apples beyond the native view")
 a = p.parse_args()
 root = Path(__file__).resolve().parents[1]
 out = a.out.resolve()
@@ -173,6 +175,33 @@ if a.continue_save:
         assert len(left) == len(right) == 1 and left[0][1] == right[0][1], y
     report["ultrawide_presentation"]["continue_centered"] = True
 
+if a.apple_save:
+    apple_route = out / "apples.input"
+    apple_route.write_text(f"WAIT 600\nLOAD_STATE {a.apple_save.resolve().as_posix()}\nWAIT 3\n")
+    apple_native = capture("apples-native", "off", route=apple_route, frames=0)
+    apple_original = capture("apples-original", "1392:224", route=apple_route,
+                             frames=0)
+    apple_expanded = capture("apples-expanded", "1392:224", spawn="expanded",
+                             route=apple_route, frames=0)
+    parity(apple_native, apple_original)
+    native_im = Image.open(apple_native / "scene.png").convert("RGB")
+    wide_im = Image.open(apple_expanded / "scene.png").convert("RGB")
+    center = (wide_im.width - 320) // 2
+    real_apple = (wide_im.getpixel((x,y)) for y in range(85,96)
+                  for x in range(91,105))
+    assert sum(r > 200 and g < 100 and b < 80 for r,g,b in real_apple) > 20
+    # Native SAT X is nine bits. Previously apples at x=91 and x=252 were
+    # also copied into the centered viewport at x+512.
+    for x1,y1,x2,y2 in ((602,84,618,97),(763,84,779,97)):
+        assert ImageChops.difference(wide_im.crop((x1,y1,x2,y2)),
+                                     native_im.crop((x1-center,y1,x2-center,y2))).getbbox() is None
+    ram = (apple_expanded / "scene.ram").read_bytes()
+    apples = sum(ram[o:o+2] == b"\x00\x64" for o in range(0xC100,0xE000,0x80))
+    assert apples >= 6, apples
+    report["apple_wrap"] = {"real_apples_active": apples,
+                            "wrapped_copies_absent": True}
+
 (out / "verification.json").write_text(json.dumps(report, indent=2), encoding="utf-8")
 print(f"PASS: native parity, activation, resize, HUD, castle parallax, ultrawide city"
-      f"{' and Continue screen' if a.continue_save else ''}; {out / 'verification.json'}")
+      f"{' and Continue screen' if a.continue_save else ''}"
+      f"{' and apple wrap' if a.apple_save else ''}; {out / 'verification.json'}")
