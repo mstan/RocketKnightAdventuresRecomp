@@ -66,9 +66,10 @@ the caches, and an unmatched SAT invalidates a cached scene after transitions.
 
 Original Spawn Range leaves the game's simulation hooks inert. Expanded
 Spawn Range widens placement loading for tiled scenes and horizontal object
-culling for both tiled and map-mode-1 vehicle scenes.
-The vehicle enemy scripts still choose their native spawn times, so their
-arrival can remain visibly tied to the original 4:3 area.
+culling for both tiled and map-mode-1 vehicle scenes. The water-ride enemy and
+rail-ride hazard scripts create at fixed 4:3 screen edges; after their native
+X stores, game hooks move those new objects to the corresponding wider edge.
+The scripts retain their original cadence and allocator.
 The original cell loaders, allocator, fixed slots, remembered placement bits
 and respawn routines still own the objects. The native object pool remains
 finite, so very wide views can exhaust it; there is no CPU speed multiplier.
@@ -115,6 +116,9 @@ All addresses were checked against the original ROM bytes with Capstone.
 | `$01150C`, `$011548` | Top/bottom placement-cell helpers reused over wider range |
 | `$011584`, `$0115EA` | Native spawn allocator and successful-allocation observation |
 | `$0116D2` | Native remembered-placement / respawn handling |
+| `$02F8FE` | Water-ride type `$12` controller, immediately after spawning type `$11` at native screen X `$160` |
+| `$016CA4` | Rail-ride type `$97` state-3 JMP-table target, generated as a callable stream to expose its creation hook |
+| `$016E04` | Rail-ride type `$96` creation, after the native left/right X table store |
 | `$FFB880` | Per-cell remembered placement bits |
 | `$FFC000` | Player object, rendered through reserved SAT entries |
 | `$FFC100`–`$FFE000` | General objects, 128 bytes each |
@@ -167,6 +171,11 @@ pixels in the tree-climbing scene at 21:9 (map mode 5, stage index 2). Its
 1,407 interpreter-floor dispatch events were identical with the native and
 custom renderers; neither run reported a new unique true-miss address.
 
-These checks are not a full playthrough. Later boss, vehicle and unusual raster
-scenes still need interactive coverage. No ROM, savestate or screenshot is
-committed; evidence stays in ignored build directories.
+The supplied stage-1 save 4 and stage-2 save 6 were also replayed in native,
+Original Spawn Range and Expanded Spawn Range. At frame 120, the stage-1 water
+enemy's screen X was 39 in Original and 117 in Expanded; the stage-2 rail
+hazard's X was 202 and 241. Original Spawn Range RAM and VRAM matched native
+in both scenes. All 15 supplied saves were captured in native and 16:9; the
+recovered stage-4 save 4 reached CLEAR BONUS in both modes after 600 frames.
+These captures are not a full interactive playthrough. No ROM, savestate or
+screenshot is committed; evidence stays in ignored build directories.

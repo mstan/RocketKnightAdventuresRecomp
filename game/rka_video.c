@@ -308,6 +308,20 @@ int rka_video_hook(uint32_t pc)
     int span = s_requested_width < end ? s_requested_width : end;
     int extra_left = camera - left, extra_right = left + span - camera - 320;
     if (extra_right < 0) extra_right = 0;
+    /* The two vehicle sequences allocate at fixed native screen edges rather
+     * than using the placement map. Shift only their newly written X words;
+     * their own cadence, object pool, motion and despawn logic stay native. */
+    unsigned stage = r16(g_ram,0xFB12);
+    if (map == 1 &&
+        ((stage == 2 && pc == 0x2F8FE) ||
+         (stage == 7 && pc == 0x16E04))) {
+        unsigned slot = g_cpu.A[2] & 65535u;
+        int x = (int16_t)r16(g_ram,slot+6);
+        int shift = pc == 0x2F8FE ? extra_right :
+                    (x == 0 ? -extra_left : extra_right);
+        if (shift) m68k_write16(0xFF0000u+slot+6,(uint16_t)(x+shift));
+        return 0;
+    }
     unsigned o = g_cpu.A[1] & 65535u;
     /* Pre-branch hooks replace only the preceding X comparison flags. The
      * original branch, respawn bookkeeping and deletion routines still run. */

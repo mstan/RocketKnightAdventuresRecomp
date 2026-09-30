@@ -94,7 +94,10 @@ late_extra = [
   0x00F940, 0x00F970, 0x00F9B0, 0x00F9E0,
   0x0106C6, 0x010BCE, 0x010CE6,
   0x012D5E, 0x012EC2, 0x012F8A,
-  0x015DEE, 0x015E5C, 0x016256, 0x016B64, 0x016EAA, 0x01713E,
+  0x015DEE, 0x015E5C, 0x016256, 0x016B64,
+  # State 3 of type $97: $16B72-relative JMP table target. Generate this
+  # independently so its fixed-edge vehicle spawns can run game hooks.
+  0x016CA4, 0x016EAA, 0x01713E,
   0x01615C,
   0x022664, 0x0226A0, 0x022710, 0x022760, 0x022790, 0x0227C0,
   0x023BD2,
@@ -178,6 +181,15 @@ addr = 0x0113D8
 kind = "game_hook"
 [[widescreen_site]]
 addr = 0x0115EA
+kind = "game_hook"
+
+# Map-mode-1 vehicle scripts create enemies at fixed 320px screen edges.
+# These sites are immediately after the game's native X stores.
+[[widescreen_site]]
+addr = 0x02F8FE
+kind = "game_hook"
+[[widescreen_site]]
+addr = 0x016E04
 kind = "game_hook"
 
 # Capture the camera and autonomous-motion terms before per-strip BG scroll

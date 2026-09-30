@@ -112,9 +112,9 @@ while independent cloud motion and scenery animation are retained.
 **Enemy activation** offers:
 
 - **Expanded Spawn Range** (default): activates and retains enemies across the
-  wider tiled levels and retains vehicle enemies across the wider view. This
-  changes encounter timing and can make more enemies active. Vehicle scripts
-  still use their original spawn timing.
+  wider tiled levels and moves the water-ride and rail-ride enemy entry points
+  to the wider edges. This changes encounter timing and can make more enemies
+  active.
 - **Original Spawn Range**: keeps the original camera's spawn and despawn
   behavior. Enemies can appear inside the wider view as they enter that range.
 
