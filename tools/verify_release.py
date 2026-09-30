@@ -111,9 +111,11 @@ report["actors"] = {"original": actors(original), "expanded": actors(expanded)}
 im = Image.open(expanded / "scene.png").convert("RGB")
 center = (im.width-320)//2
 assert im.crop((16,0,center,8)).getbbox()
-for box in ((16,8,center,32),(center+320,8,im.width-16,32)):
-    margin=im.crop(box)
-    assert sum(n for n,p in margin.getcolors(margin.width*margin.height) if p==(0,0,0)) < margin.width*margin.height//20
+# The live border art contains black pixels by design. Verify that both
+# margins use the undecorated 32-pixel HUD border across every HUD row.
+for y in range(32):
+    for x in list(range(center)) + list(range(center+320, im.width)):
+        assert im.getpixel((x,y)) == im.getpixel((center+((x-center)&31),y)), (x,y)
 idle = Image.open(capture("edge-idle", "32:9", edge="idle") / "scene.png").convert("RGB")
 walk = Image.open(capture("edge-walk", "32:9", edge="walk") / "scene.png").convert("RGB")
 for box in ((315,75,390,125),(500,32,760,64),(600,128,700,144)):
