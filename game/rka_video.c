@@ -512,12 +512,12 @@ int rka_video_hook(uint32_t pc)
     if (pc == 0x21B4) {
         unsigned o = g_cpu.A[1] & 65535u;
         int x = (int16_t)r16(g_ram,o+0x28);
-        /* Expanded culling keeps distant apples alive for the wide renderer,
-         * but their native SAT X is only 9 bits. Skip the hardware mapping
-         * when its X would wrap into the original 320px viewport. Their
-         * unwrapped mapping was already captured at $21AE for the sides. */
-        if (r16(g_ram,o) == 0x64 && !(g_ram[o+0x27] & 4) &&
-            (x < 0 || x >= 512))
+        /* Expanded culling keeps distant actors alive beyond the native
+         * screen, but their hardware SAT X is only 9 bits. Any world-space
+         * actor whose biased X is outside 0..511 can wrap broken pieces into
+         * the original play area. Its unwrapped mapping was captured at
+         * $21AE and is rendered at its true location in the wide view. */
+        if (!(g_ram[o+0x27] & 4) && (x < 0 || x >= 512))
             g_cpu.SR &= (uint16_t)~SR_C;
         return 0;
     }

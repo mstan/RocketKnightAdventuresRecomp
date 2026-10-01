@@ -66,10 +66,12 @@ matches the captured scene to the SAT actually published in VRAM; this avoids
 drawing next-frame actors over the current frame's terrain. Sprite ordering,
 flips, palette selection, foreground groups and the separate player SAT prefix
 are retained. The two native HUD masking sentinels remain invisible.
-Expanded stage-1 apples can remain active outside the original viewport.
-Their nine-bit hardware SAT X would wrap by 512 pixels into that viewport.
-After capturing each unwrapped mapping, the renderer skips the hardware pieces
-for distant apples; the wide sprites stay visible at their true world positions.
+Expanded-range actors can remain active outside the original viewport. Their
+nine-bit hardware SAT X can wrap by 512 pixels into that viewport, leaving
+partial carts, enemies and other sprite fragments in the native play area.
+After capturing each unwrapped mapping, the renderer skips hardware pieces
+whose world-space X is outside the SAT range. The wide sprites stay visible at
+their true positions.
 
 The native window/HUD counters stay centered. Its undecorated 32-pixel border
 repeats across the added margins for all 32 HUD rows, covering water and other
@@ -190,7 +192,7 @@ All addresses were checked against the original ROM bytes with Capstone.
 | `$002D7E`, `$0032B6` | Native terrain streamers proving the 4×4 block format |
 | `$001FB0` | Begin actor mapping capture |
 | `$0021AE` | Mapping header, before hardware piece limit and coordinate mask |
-| `$0021B4` | Post-compare branch that skips wrapped hardware pieces for distant apples |
+| `$0021B4` | Post-compare branch that skips wrapped hardware pieces for distant world actors |
 | `$002358` | Capture completed RAM scene/SAT before SAT DMA |
 | `$012C62` | Type `$07` castle: camera-plus-160 minus one eighth, in 16.16 coordinates |
 | `$012CD8` | Type `$3B` flying detail: castle anchor plus independent timed phase |
