@@ -118,6 +118,18 @@ static int room_x(int wx, int lo, int hi)
     if (wx >= hi) return last - 32 + ((wx - last) & 31);
     return wx;
 }
+static int bridge_x(int wx, int lo, int hi)
+{
+    /* The stage-1 tank arena is exactly one native viewport wide. Repeating
+     * either sloped 32px edge block makes the suspension cable sawtooth at
+     * wide ratios. Reflect the authored bridge span at each end instead;
+     * the rail and posts meet the native viewport without a height jump. */
+    int span = hi - lo;
+    if (span <= 0) return wx;
+    int n = (wx - lo) % (span * 2);
+    if (n < 0) n += span * 2;
+    return lo + (n < span ? n : span * 2 - 1 - n);
+}
 static int configure(const char *mode)
 {
     if (!mode) return 0;
@@ -783,7 +795,10 @@ static void scanline(const GVDP *v, int line, const uint32_t *native, int nw,
             int inside = nx >= 0 && nx < nw;
             int bx = (wrap_b && !inside ? native_wrap(nx,nw) + origin : x) - center - bg_h;
             int by = line + vb;
-            int tx = tiled ? room_x(wx,s_room_lo,s_room_hi) : 0;
+            int tx = tiled ? (stage == 2 && map == 9 &&
+                              s_room_hi - s_room_lo == 320
+                              ? bridge_x(wx,s_room_lo,s_room_hi)
+                              : room_x(wx,s_room_lo,s_room_hi)) : 0;
             int pax = (wrap_a && !inside ? native_wrap(nx,nw) : nx) - ha;
             unsigned a = tiled ? terrain(r,tx,wy) : plane(v,ba,pax,line+va);
             unsigned b = plane(v,bb,bx,by);

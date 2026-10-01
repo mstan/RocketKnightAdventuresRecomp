@@ -55,6 +55,11 @@ corridor, a castle exterior beside an interior); there the renderer repeats
 the room's outermost whole 32-pixel block column of terrain. Plane B and all
 actors keep their real positions. A plane whose unseen name-table columns are
 all blank (cutscenes author only 320 pixels) repeats its native 320 pixels.
+The stage-1 tank bridge is a 320-pixel locked room with a curved fence.
+Repeating only a sloped edge block makes the rail sawtooth, so its margins
+reflect the complete authored bridge span at each room edge. The centered
+native view stays byte-identical.
+
 Actor mappings are captured
 before the 80-piece SAT limit and 9-bit coordinate wrapping. A short history
 matches the captured scene to the SAT actually published in VRAM; this avoids
@@ -82,8 +87,8 @@ first opaque sprite wins, S-hi > A-hi > B-hi > S-lo > A-lo > B-lo > backdrop,
 and in shadow/highlight mode (the stage 7 corridors) palette-3 colours 14/15
 are highlight/shadow operators. Interlace and H32 keep a centered native
 fallback. The native 320-pixel playfield is the minimum width. Fixed ratios
-and Adaptive may exceed 32:9. No per-stage strips or exceptions remain other
-than the stage 23 fog.
+and Adaptive may exceed 32:9. No per-stage strip captures remain; the
+boss-room, bridge and stage-23 background treatments are described above.
 
 Scene snapshots are presentation caches. Simulation state stays in the
 original RAM and CPU; no host-owned enemy pool is introduced. Reset clears
