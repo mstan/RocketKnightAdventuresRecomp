@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.19)
-project(RocketKnightAdventuresRecomp VERSION 0.1.2 LANGUAGES C)
+project(RocketKnightAdventuresRecomp VERSION 0.1.5 LANGUAGES C)
 set(RKA_BUILD_VERSION "${PROJECT_VERSION}" CACHE STRING "Release version")
 if(NOT RKA_BUILD_VERSION MATCHES "^[0-9]+\\.[0-9]+\\.[0-9]+(-[A-Za-z0-9.]+)?$")
     message(FATAL_ERROR "Invalid RKA_BUILD_VERSION")
@@ -185,7 +185,7 @@ endfunction()
 
 # --- Mode: Rocket Knight Adventures (USA, 1 MB @ $000000) -------------------
 add_recomp_mode(RKARecomp rka "${CMAKE_CURRENT_SOURCE_DIR}/game" rka.bin 4390 4391)
-target_sources(RKARecomp PRIVATE game/rka_video.c game/rka_options.c)
+target_sources(RKARecomp PRIVATE game/rka_video.c game/rka_options.c game/rka_cheats.c)
 target_compile_definitions(RKARecomp PRIVATE RKA_BUILD_VERSION="${RKA_BUILD_VERSION}")
 
 # Carry the exact inputs beside the binary; packagers check this before shipping.

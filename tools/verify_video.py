@@ -45,11 +45,25 @@ def capture(name, mode, spawn="original", castle=False, resize=False, route=None
         # The longer attract run legitimately exercises interpreter-floor
         # dispatches. None may be a new, unresolved address.
         assert diag["dispatch_miss_info"]["unique_count"] == 0, diag
-    if mode != "off" and level:
+    if mode != "off" and level and diag["custom_video"]["scene"] == "tiled":
         assert diag["custom_video"]["terrain_checks"] > 0, diag
         assert diag["custom_video"]["terrain_errors"] == 0, diag
         assert diag["custom_video"]["sprite_overflow"] == 0, diag
     return dest
+
+
+def view_left(ram, camera, width):
+    """Mirror of rka_video.c view_left() for tiled scenes."""
+    word = lambda offset: int.from_bytes(ram[offset:offset + 2], "big")
+    signed = lambda v: v - 65536 if v & 0x8000 else v
+    stage = word(0xB1E8) + 320
+    lo, hi = signed(word(0xB39C)), signed(word(0xB39E)) + 320
+    if lo < 0 or hi < lo + 320 or hi > stage:
+        lo, hi = 0, stage
+    lo, hi = min(lo, camera), max(hi, camera + 320)
+    if hi - lo < width:
+        return (lo + hi - width) // 2
+    return max(lo, min(camera - (width - 320) // 2, hi - width))
 
 
 def parity(native, wide):
@@ -63,15 +77,17 @@ def parity(native, wide):
     ni = Image.open(native / "scene.png").convert("RGB")
     wi = Image.open(wide / "scene.png").convert("RGB")
     center = (wi.width - ni.width) // 2
-    left = max(0, min(camera - center, max(0, word(ram, 0xB1E8) + 320 - wi.width)))
-    origin = camera - left
-    # The world follows the clamped camera; the HUD remains centered.
-    assert ImageChops.difference(ni.crop((0, 32, 320, 224)),
-                                wi.crop((origin, 32, origin + 320, 224))).getbbox() is None
+    origin = camera - view_left(ram, camera, wi.width)
+    # A centered view copies the hardware image exactly. At a clamped room
+    # edge the wider camera keeps its own background parallax, so only the
+    # guest state and the centered HUD are exact there.
+    if origin == center:
+        assert ImageChops.difference(ni.crop((0, 32, 320, 224)),
+                                    wi.crop((origin, 32, origin + 320, 224))).getbbox() is None
     assert ImageChops.difference(ni.crop((0, 0, 320, 32)),
                                 wi.crop((center, 0, center + 320, 32))).getbbox() is None
     return {"width": wi.width, "native_origin": origin, "ram_equal": True,
-            "vram_equal": True, "native_pixels_equal": True}
+            "vram_equal": True, "native_pixels_equal": origin == center}
 
 
 castle_native = capture("castle-native", "off", castle=True)
@@ -150,9 +166,13 @@ for ext in ("ram", "vram"):
 cn = Image.open(city_native / "scene.png").convert("RGB")
 cw = Image.open(city_wide / "scene.png").convert("RGB")
 assert cw.width == 1392
-assert ImageChops.difference(cn.crop((0,32,320,224)), cw.crop((0,32,320,224))).getbbox() is None
+# Map-1 set pieces are centered: the native image sits exactly in the middle,
+# and beyond 128px of fog both sides are one flat color per row.
+cc = (cw.width - 320) // 2
+assert ImageChops.difference(cn.crop((0,32,320,224)), cw.crop((cc,32,cc+320,224))).getbbox() is None
 for y in range(40, 224):
-    assert len(cw.crop((600,y,cw.width,y+1)).getcolors(maxcolors=2) or []) == 1, y
+    for x1, x2 in ((0, cc - 128), (cc + 320 + 128, cw.width)):
+        assert len(cw.crop((x1,y,x2,y+1)).getcolors(maxcolors=2) or []) == 1, (y, x1)
 
 report["ultrawide_presentation"] = {"city_native_pixels_equal": True,
     "city_extra_background_diffused": True}
@@ -183,18 +203,25 @@ if a.apple_save:
                              frames=0)
     apple_expanded = capture("apples-expanded", "1392:224", spawn="expanded",
                              route=apple_route, frames=0)
-    parity(apple_native, apple_original)
+    origin = parity(apple_native, apple_original)["native_origin"]
     native_im = Image.open(apple_native / "scene.png").convert("RGB")
     wide_im = Image.open(apple_expanded / "scene.png").convert("RGB")
     center = (wide_im.width - 320) // 2
-    real_apple = (wide_im.getpixel((x,y)) for y in range(85,96)
+    real_apple = (wide_im.getpixel((x+origin-center,y)) for y in range(85,96)
                   for x in range(91,105))
     assert sum(r > 200 and g < 100 and b < 80 for r,g,b in real_apple) > 20
     # Native SAT X is nine bits. Previously apples at x=91 and x=252 were
     # also copied into the centered viewport at x+512.
+    # The room clamp places the native view at `origin`, where the wider
+    # camera re-renders background parallax, so count apple-red pixels instead
+    # of comparing them: a wrapped hardware copy would add them, the native
+    # image has none there.
+    red = lambda im, box: sum(r > 200 and g < 100 and b < 80
+                              for r, g, b in im.crop(box).get_flattened_data())
     for x1,y1,x2,y2 in ((602,84,618,97),(763,84,779,97)):
-        assert ImageChops.difference(wide_im.crop((x1,y1,x2,y2)),
-                                     native_im.crop((x1-center,y1,x2-center,y2))).getbbox() is None
+        nx1, nx2 = x1 - center, x2 - center
+        assert red(native_im, (nx1,y1,nx2,y2)) == 0, (nx1, "native")
+        assert red(wide_im, (nx1+origin,y1,nx2+origin,y2)) == 0, (nx1, origin)
     ram = (apple_expanded / "scene.ram").read_bytes()
     apples = sum(ram[o:o+2] == b"\x00\x64" for o in range(0xC100,0xE000,0x80))
     assert apples >= 6, apples

@@ -17,6 +17,7 @@
 #include "game_spec.h"
 #include "genesis_runtime.h"
 #include "rka_video.h"
+#include "rka_cheats.h"
 #include "rka_options.h"
 
 #include <stddef.h>
@@ -33,8 +34,17 @@ static void rka_call_vblank(void)      { recomp_call_addr(0x0003D4u); }
  * later (it won't fire during early boot). */
 static void rka_call_hblank(void)      { recomp_call_addr(0xFFFFE010u); }
 
+/* Cheats only adjust guest flags/RAM ahead of their instruction; the
+ * renderer hooks may also replace a routine. */
+static int rka_instruction_hook(uint32_t pc)
+{
+    rka_cheats_hook(pc);
+    return rka_video_hook(pc);
+}
+
 static const GameDebugCommand rka_commands[] = {
     { "custom_video", rka_video_command },
+    { "rka_spawns", rka_spawns_command },
 };
 const GameSpec g_game_spec = {
     .video                  = &rka_video,
@@ -42,7 +52,7 @@ const GameSpec g_game_spec = {
     .mods                   = rka_mods,
     .netplay_config_image    = rka_config_image,
     .netplay_config_adopt    = rka_config_adopt,
-    .instruction_hook       = rka_video_hook,
+    .instruction_hook       = rka_instruction_hook,
     .display_name           = "Rocket Knight Adventures v" RKA_BUILD_VERSION,
     .short_name             = "RKA",
 

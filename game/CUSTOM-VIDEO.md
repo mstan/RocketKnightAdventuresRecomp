@@ -34,7 +34,24 @@ does not inherit the moving native camera's fractional part. Their autonomous
 animation and all guest state remain untouched. Once the view scrolls freely,
 the native sprite projection is retained.
 
-The view clamps to the stage's horizontal bounds. Actor mappings are captured
+Scenes fall into three classes. Tiled scenes (maps 2-8, and map 9 boss arenas
+whose layout masks at `$B1E4` are real) draw terrain from the layout. Planar
+scenes (map 1 vehicles, shooters, set pieces and cutscenes, and the ending's
+map 9) never stream: their planes are loaded whole, so the live name tables
+wrap correctly at the plane width and the view is always centered on the
+native one. Scenes with no block dictionary at `$B1F6` (the Continue screen,
+stage cards) keep their centered native presentation.
+
+The tiled view clamps to the current room, the range `$3EAE` clamps the
+following camera to (`$B39C`..`$B39E` plus 320), widened to include the live
+camera during scripted pans. A room narrower than the view is centered on its
+midpoint, even at a stage end, so locked boss rooms keep the exact native view
+in the middle. Beyond a room the layout holds unrelated areas (the previous
+corridor, a castle exterior beside an interior); there the renderer repeats
+the room's outermost whole 32-pixel block column of terrain. Plane B and all
+actors keep their real positions. A plane whose unseen name-table columns are
+all blank (cutscenes author only 320 pixels) repeats its native 320 pixels.
+Actor mappings are captured
 before the 80-piece SAT limit and 9-bit coordinate wrapping. A short history
 matches the captured scene to the SAT actually published in VRAM; this avoids
 drawing next-frame actors over the current frame's terrain. Sprite ordering,
@@ -48,26 +65,21 @@ for distant apples; the wide sprites stay visible at their true world positions.
 The native window/HUD counters stay centered. Its undecorated 32-pixel border
 repeats across the added margins for all 32 HUD rows, covering water and other
 world art that used to show through below the cornice. Counters and hearts do
-not repeat. Menus and unsupported presentation scenes retain their native
-center. Vehicle scenes (map mode 1) use their live planes and actor mappings;
-the first water ride uses a known-good streamed sky strip, and the rail ride
-continues its live floor strip. Outside the native width, other non-layout
-scenes draw plane B without stale streamed plane A tiles. When the native and
-wide cameras align, the original 320-pixel image
-is copied back over the reconstruction to preserve raster and boss effects.
+not repeat. When the native and wide cameras align, the original 320-pixel image is copied
+back over the reconstruction to preserve raster and boss effects.
 The flying city (stage index 23) is an endless set piece with a 256-pixel
 background map. Beyond 512 pixels of view width, its repeated city art fades
 into a vertically smoothed average of its own colors outside the native view.
 The 320-pixel play area is copied back exactly, and moving actors remain sharp.
-The Continue screen retains map mode 1 but has an invalid camera limit; it is
-classified as a presentation screen and filled with the VDP backdrop around
-its centered native image.
-At room walls where the wider layout exposes tiles from an adjacent room,
-the nearest live wall strip continues into that side margin. This is scoped
-to the room stage indices confirmed by the supplied stage 1-4 saves; the
-stage-4 boss uses narrow 8-pixel edge strips to avoid repeating its limbs.
-Interlace and shadow/highlight scenes use a centered native fallback. The native 320-pixel
-playfield is the minimum width. Fixed ratios and Adaptive may exceed 32:9.
+The Continue screen has no block dictionary; it is a presentation screen
+filled with the VDP backdrop around its centered native image.
+Planes and sprites are composited per pixel exactly as `genesis_vdp.c` does:
+first opaque sprite wins, S-hi > A-hi > B-hi > S-lo > A-lo > B-lo > backdrop,
+and in shadow/highlight mode (the stage 7 corridors) palette-3 colours 14/15
+are highlight/shadow operators. Interlace and H32 keep a centered native
+fallback. The native 320-pixel playfield is the minimum width. Fixed ratios
+and Adaptive may exceed 32:9. No per-stage strips or exceptions remain other
+than the stage 23 fog.
 
 Scene snapshots are presentation caches. Simulation state stays in the
 original RAM and CPU; no host-owned enemy pool is introduced. Reset clears
@@ -77,10 +89,15 @@ the caches, and an unmatched SAT invalidates a cached scene after transitions.
 
 Original Spawn Range leaves the game's simulation hooks inert. Expanded
 Spawn Range widens placement loading for tiled scenes and horizontal object
-culling for both tiled and map-mode-1 vehicle scenes. The water-ride enemy and
-rail-ride hazard scripts create at fixed 4:3 screen edges; after their native
-X stores, game hooks move those new objects to the corresponding wider edge.
-The scripts retain their original cadence and allocator.
+culling for both tiled and planar scenes, but only across the room the view
+shows: margins beyond a locked room never wake the neighbouring area.
+Scripted generators (vehicle rides, shooter waves, set pieces) create objects
+at fixed native screen edges. `tools/audit_edge_spawns.py` finds every
+constant or camera-relative X store into a new slot that falls in the native
+spawn band (screen X -96..-1 or 320..415; X=0 only at audited left entries)
+and emits the hook table `s_edge_spawns`. After each X store the hook moves an
+off-view object to the corresponding wider edge. The scripts retain their
+cadence, allocator and despawn logic.
 The original cell loaders, allocator, fixed slots, remembered placement bits
 and respawn routines still own the objects. The native object pool remains
 finite, so very wide views can exhaust it; there is no CPU speed multiplier.
@@ -97,6 +114,38 @@ the game adds the choice to the shared session configuration image. Host
 adoption does not overwrite local preferences. Network sessions were not part
 of this renderer validation.
 
+## Playtest cheats
+
+A second built-in Mods package, Playtest Cheats (`rka_cheats.c`), reproduces
+the published Game Genie codes as instruction hooks, since recompiled code
+cannot be byte-patched. Start stage (1-7) replaces only the new-game opening
+area stored at `$0A8E`; the game then advances through its own next-area
+table at `$8322`, so later stages, Continue and Game Over are unchanged. The
+entry areas are 44 (opening), 4, 40, 45, 48, 49 and 47. The published "Start
+on Level 3" code writes area 58, whose successor is area 1, so it restarts
+stage 1; stage 3 uses 40, the successor of stage 2's last area. Infinite lives
+pre-increments the BCD count before the `sbcd` at `$1189E`, infinite health
+pre-adds the damage before `sub.w d1,$40(a1)` at `$F54A`, and invincibility
+clears Z before the damage `bne.w` at `$F45E`/`$F46A`. The settings persist
+in `rka-video.ini` and are part of the netplay session image.
+
+## Coverage and instrumentation
+
+`tools/coverage_sweep.py` boots every area index through `$FFFB12` with the
+invincibility/health/lives RAM codes and a rotating input pattern, collecting
+interpreter-floor targets, executed PCs and the spawn ring. With
+`--force-interp` it records whole-program executed PCs. `tools/fold_floor_coverage.py`
+accepts a floor target only when the oracle proves its straight-line run and
+it decodes cleanly, and writes `rka_floor_sweep.discovery.toml` (late_extra
+roots) plus the merged oracle `rka_executed_pcs_sweep.txt`. Three iterations
+cut floor-executed targets across all 54 areas from 1777 to 16, with the RAM
+after 3600 scripted frames byte-identical in every area. The engine
+interpreter also runs game hooks, so hooks no longer depend on coverage.
+
+The always-on spawn ring (`rka_spawns` debug command) records every object
+birth: `$116B0` callers directly, other slots by an object-table diff at each
+snapshot, attributed through the engine write hook to the creating object.
+
 ## Audited USA addresses
 
 All addresses were checked against the original ROM bytes with Capstone.
@@ -105,6 +154,11 @@ All addresses were checked against the original ROM bytes with Capstone.
 | Address | Meaning |
 | --- | --- |
 | `$FFB002` | Main mode: 4 game, 7 attract |
+| `$FFB39C`, `$FFB39E` | Room camera X bounds, applied by the follow camera at `$3EAE` |
+| `$FFFB12` | Area index; `$8322` maps each area to its successor |
+| `$000A8E` | New game: `move.w #$2C,$FB12` (opening area) |
+| `$0116B0` | Object slot clear used by most creations (spawn ring) |
+| `$F45E`, `$F46A`, `$F54A`, `$1189E` | Damage branches, health subtraction, lives decrement (cheats) |
 | `$FFB1D0` | Map dimension mode, 2–8 use the tiled level layout |
 | `$FFB1D2`, `$FFB1D6` | Camera X/Y, integer words of 16.16 values |
 | `$FFB1C8`, `$FFB1CC` | Actor camera, including shake and the SAT bias |

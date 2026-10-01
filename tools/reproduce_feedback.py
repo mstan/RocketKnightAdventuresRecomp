@@ -13,6 +13,12 @@ p.add_argument('--exe', type=Path, required=True)
 p.add_argument('--out', type=Path, required=True)
 p.add_argument('--downloads', type=Path, default=Path('E:/Downloads'))
 p.add_argument('--stage', type=int)
+p.add_argument('--zip', action='append', default=[], metavar='LABEL=PATH',
+               help='replay saves from this ZIP under LABEL (repeatable); default stage 1-4 ZIPs')
+p.add_argument('--every', type=int, default=0, help='also capture a screenshot every N frames while moving')
+p.add_argument('--ram-every', type=int, default=0, help='also dump guest RAM every N frames while moving')
+p.add_argument('--modes', default='off,16:9', help='comma-separated video modes to replay')
+p.add_argument('--hold', default='RIGHT', help='button(s) held during the moved capture, e.g. RIGHT or LEFT')
 p.add_argument('--slot', type=int)
 p.add_argument('--save-file', type=Path, help='replace the selected ZIP entry with this native save')
 p.add_argument('--frames', type=int, default=120)
@@ -25,15 +31,17 @@ env = {k: v for k, v in os.environ.items() if not k.startswith(('GENESIS_', 'SDL
 env.update(SDL_VIDEODRIVER='dummy', SDL_RENDER_DRIVER='software', SDL_AUDIODRIVER='dummy',
            GENESIS_RUN_DONE='1', GENESIS_NO_LAUNCHER='1')
 summary = []
-for stage in ([a.stage] if a.stage else range(1, 5)):
-    with zipfile.ZipFile(a.downloads / f'stage {stage} saves.zip') as z:
+sources = [tuple(z.split("=", 1)) for z in a.zip] or \
+          [(str(s), a.downloads / f'stage {s} saves.zip') for s in ([a.stage] if a.stage else range(1, 5))]
+for stage, zpath in sources:
+    with zipfile.ZipFile(zpath) as z:
         for item in z.infolist():
             if not item.filename.endswith('.bin'):
                 continue
             slot = int(Path(item.filename).stem.rsplit('_', 1)[1])
             if a.slot is not None and slot != a.slot:
                 continue
-            for mode in ('off', '16:9'):
+            for mode in a.modes.split(','):
                 run = out / f'stage{stage}-save{slot}-{mode.replace(":", "x")}'
                 run.mkdir(exist_ok=True)
                 exe = run / a.exe.name
@@ -49,8 +57,23 @@ for stage in ([a.stage] if a.stage else range(1, 5)):
                 # guest RAM; B014 bit 7 is the game's pause state.
                 paused = len(save) == 157106 and bool(save[101 + 0xB014] & 128)
                 unpause = 'PRESS START 2\nWAIT 4\n' if paused else ''
-                for name, movement in (('loaded', ''), ('moved', unpause + f'PRESS RIGHT {a.frames}\nWAIT {a.frames}\n')):
+                hold = ''.join(f'PRESS {b} {a.frames}\n' for b in a.hold.split('+') if b)
+                for name, movement in (('loaded', ''), ('moved', unpause + hold)):
                     script += movement
+                    if name == 'moved':
+                        # Periodic frames expose scroll-time defects that a
+                        # single end capture can miss.
+                        shots = set(range(a.every, a.frames, a.every)) if a.every else set()
+                        dumps = set(range(a.ram_every, a.frames, a.ram_every)) if a.ram_every else set()
+                        last = 0
+                        for t in sorted(shots | dumps):
+                            script += f'WAIT {t - last}\n'
+                            if t in shots:
+                                script += f'SCREENSHOT {(run / f"moved-{t:04d}.png").as_posix()}\n'
+                            if t in dumps:
+                                script += f'DUMP_RAM {(run / f"ram-{t:04d}.bin").as_posix()}\n'
+                            last = t
+                        script += f'WAIT {a.frames - last}\n'
                     for op, ext in (('SCREENSHOT', 'png'), ('DUMP_RAM', 'ram'), ('DUMP_VRAM', 'vram')):
                         script += f'{op} {(run / (name + "." + ext)).as_posix()}\n'
                     script += 'WAIT 1\n'
@@ -74,7 +97,7 @@ for stage in ([a.stage] if a.stage else range(1, 5)):
                 summary.append(record)
                 print(json.dumps(record), flush=True)
     rows = [r for r in summary if r['stage'] == stage]
-    sheet = Image.new('RGB', (840, len(rows) // 2 * 280), '#222222')
+    sheet = Image.new('RGB', (840, (len(rows) + 1) // 2 * 280), '#222222')
     draw = ImageDraw.Draw(sheet)
     moved_sheet = Image.new('RGB', sheet.size, '#222222')
     moved_draw = ImageDraw.Draw(moved_sheet)

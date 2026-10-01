@@ -16,6 +16,7 @@ p.add_argument("--out", type=Path, required=True)
 p.add_argument("--mode", default="off")
 p.add_argument("--spawn-range", choices=("expanded", "original"), default="expanded")
 p.add_argument("--attract", action="store_true")
+p.add_argument("--cheats", default="", help="enable Playtest Cheats, e.g. start_stage=4,infinite_lives=1")
 p.add_argument("--frames", type=int, default=3400)
 p.add_argument("--inspect", action="store_true", help="Query the live renderer after the capture")
 p.add_argument("--resize-check", action="store_true", help="Also verify live adaptive resizing (requires --inspect)")
@@ -28,7 +29,8 @@ out.mkdir(parents=True, exist_ok=False)
 exe = out / a.exe.name
 shutil.copy2(a.exe, exe)
 shutil.copy2(a.exe.parent / "SDL2.dll", out / "SDL2.dll")
-(out / "rka-video.ini").write_text(f"spawn_range={a.spawn_range}\n", encoding="utf-8")
+cheats = "cheats=1\n" + "".join(f"{kv}\n" for kv in a.cheats.split(",")) if a.cheats else ""
+(out / "rka-video.ini").write_text(f"spawn_range={a.spawn_range}\n{cheats}", encoding="utf-8")
 route = "" if a.attract else (
     "WAIT_RAM16 FFB002 0001\nWAIT_RAM16 FFB004 0001\nPRESS START 2\nWAIT 4\n"
     "WAIT_RAM16 FFB004 0004\nPRESS START 2\nWAIT 4\n"

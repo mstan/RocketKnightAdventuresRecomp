@@ -12,7 +12,7 @@ no community disassembly, so function discovery is heuristic instead of
 disasm-seeded. That makes RKA the proving ground for the engine's
 resilience layer (see below).
 
-## Status (v0.1.4)
+## Status (v0.1.5)
 
 - Boots, full attract/title flow, opening cinematic.
 - Stage 1 playable end to end: correct background parallax and
@@ -20,9 +20,12 @@ resilience layer (see below).
   ricochet moves, end-of-stage sequence.
 - Gamepads work plug-and-play (tested with a DualSense / PS5 pad);
   keyboard and pad are active simultaneously.
-- Later stages are lightly tested; a complete widescreen playthrough is pending.
+- All seven stages render in widescreen, including vehicle rides, shooter
+  stages, boss arenas, cutscenes and shadow/highlight scenes.
 - Experimental custom widescreen renderer with adaptive window fitting,
   fixed aspect ratios, and configurable enemy activation.
+- Playtest cheats as separate mods: Start Stage, Infinite Lives, Infinite
+  Health and Invincible.
 
 ### The tier-3 interpreter fallback (always on for RKA)
 
@@ -77,16 +80,16 @@ complete DLL import closure. Linux packages use pinned, hash-checked AppImage
 tools and test writable state paths. See [release instructions](RELEASING.md).
 
 ```powershell
-./tools/build-windows.ps1 -Version 0.1.4
+./tools/build-windows.ps1 -Version 0.1.5
 ```
 
 ```sh
-bash tools/build-linux.sh --version 0.1.4 --jobs 8
+bash tools/build-linux.sh --version 0.1.5 --jobs 8
 ```
 
-Windows output: `release-stage/*-windows-x64-v0.1.4.zip`.
-Linux output: `release-linux/*-linux-x86_64-v0.1.4.AppImage`.
-Both include SHA-256 checksum files. Linux v0.1.4 is built on Ubuntu 24.04;
+Windows output: `release-stage/*-windows-x64-v0.1.5.zip`.
+Linux output: `release-linux/*-linux-x86_64-v0.1.5.AppImage`.
+Both include SHA-256 checksum files. Linux v0.1.5 is built on Ubuntu 24.04;
 older distributions and Steam Deck have not been validated.
 
 ## Running

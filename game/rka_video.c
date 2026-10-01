@@ -31,9 +31,8 @@ typedef struct {
 static Scene s_build, s_history[3], s_presented;
 static const Scene *s_scene;
 static unsigned s_serial, s_frames, s_terrain_checks, s_terrain_errors, s_spawned;
-static unsigned s_sprite_overflow;
+static unsigned s_sprite_overflow, s_edge_shifts;
 static int s_width, s_left, s_origin, s_camera;
-static uint8_t *s_priority, *s_occupied;
 static int s_capacity;
 typedef struct {
     uint32_t phase;
@@ -57,27 +56,62 @@ static unsigned read8(const uint8_t *r, unsigned a)
 }
 static unsigned read16(const uint8_t *r, unsigned a)
 { return (read8(r, a) << 8) | read8(r, a + 1); }
-static int scene_active(const uint8_t *r)
+/* Scene classes. Tiled maps 2-8 stream plane A from the byte layout
+ * ($2D7E). Map 9 stops streaming for a boss arena; inside a tiled stage its
+ * layout stays valid ($B1E4 is a real width mask), while the ending's map 9
+ * has none. Map 1 (vehicles, shooters, set pieces, cutscenes) never streams:
+ * its planes are loaded whole and wrap at the plane width, so the live name
+ * tables are valid beyond 320px. Every playable scene loads a block
+ * dictionary at $B1F6; the Continue screen and stage cards do not, and keep
+ * their centered presentation. */
+enum { SCENE_NONE, SCENE_TILED, SCENE_PLANAR };
+static int scene_kind(const uint8_t *r)
 {
     unsigned mode = r16(r, 0xB002), map = r16(r, 0xB1D0);
-    return (mode == 4 || mode == 7) && map >= 2 && map <= 8 &&
-           r32(r, 0xB1F6) && r32(r, 0xB1FA);
-}
-static int vehicle_active(const uint8_t *r)
-{
-    unsigned mode = r16(r,0xB002);
-    /* The Continue screen retains map mode 1 but invalidates the level's
-     * camera limit. Stage 23 is the exceptional, endlessly scrolling city. */
-    return (mode == 4 || mode == 7) && r16(r,0xB1D0) == 1 &&
-           (r16(r,0xB1E8) < 0x8000 || r16(r,0xFB12) == 23);
+    if ((mode != 4 && mode != 7) || !r32(r, 0xB1F6)) return SCENE_NONE;
+    if (map >= 2 && map <= 8) return r32(r, 0xB1FA) ? SCENE_TILED : SCENE_NONE;
+    if (map == 9 && r32(r, 0xB1FA) && r16(r, 0xB1E4) != 0xFFFF) return SCENE_TILED;
+    return map == 1 || map == 9 ? SCENE_PLANAR : SCENE_NONE;
 }
 static int stage_width(const uint8_t *r) { return (int)r16(r, 0xB1E8) + 320; }
+/* $3EAE clamps the following camera to [$B39C,$B39E], the current room.
+ * Its scripted pans ($3C50) may move outside a stale range, so the bounds
+ * always include the live camera. Returns the room's world span [lo,hi). */
+static void room_span(const uint8_t *r, int camera, int *lo, int *hi)
+{
+    int stage = stage_width(r);
+    *lo = (int16_t)r16(r, 0xB39C); *hi = (int16_t)r16(r, 0xB39E) + 320;
+    if (*lo < 0 || *hi < *lo + 320 || *hi > stage) { *lo = 0; *hi = stage; }
+    if (camera < *lo) *lo = camera;
+    if (camera + 320 > *hi) *hi = camera + 320;
+}
+/* A room narrower than the view is centered on its midpoint, even at a
+ * stage end, so a locked boss room keeps the exact native view (and any
+ * plane-drawn boss) in the center; room_x fills both sides. A wider room
+ * clamps the view inside it. Planar scenes have no layout bounds and are
+ * always centered. */
 static int view_left(int camera, int width, const uint8_t *r)
 {
+    if (scene_kind(r) != SCENE_TILED) return camera - (width - 320) / 2;
+    int lo, hi;
+    room_span(r, camera, &lo, &hi);
+    if (hi - lo < width) return (lo + hi - width) / 2;
     int left = camera - (width - 320) / 2;
-    int end = stage_width(r) - width;
-    if (end < 0) end = 0;
-    return left < 0 ? 0 : left > end ? end : left;
+    if (left < lo) left = lo;
+    if (left > hi - width) left = hi - width;
+    return left;
+}
+/* Beyond a room the layout holds unrelated areas: the previous corridor,
+ * the castle exterior beside an interior, the next section. Continue the
+ * room's outermost whole 32px block column instead. Only terrain is
+ * substituted; plane B and actors keep their real positions. */
+static int room_x(int wx, int lo, int hi)
+{
+    int first = (lo + 31) & ~31, last = hi & ~31;
+    if (last - first < 32) return wx;
+    if (wx < lo) return first + ((wx - first) & 31);
+    if (wx >= hi) return last - 32 + ((wx - last) & 31);
+    return wx;
 }
 static int configure(const char *mode)
 {
@@ -124,7 +158,7 @@ void rka_video_reset(void)
     memset(&s_build, 0, sizeof s_build);
     memset(s_history, 0, sizeof s_history);
     memset(&s_presented, 0, sizeof s_presented);
-    s_scene = NULL; s_serial = s_frames = s_spawned = 0;
+    s_scene = NULL; s_serial = s_frames = s_spawned = s_edge_shifts = 0;
     s_sprite_overflow = s_terrain_checks = s_terrain_errors = 0;
     memset(s_scroll,0,sizeof s_scroll); s_scroll_serial = 0;
 }
@@ -261,9 +295,15 @@ static void spawn_visible(void)
     M68KState saved = g_cpu;
     int camera = r16(g_ram,0xB1D2), top = r16(g_ram,0xB1D6);
     int end = stage_width(g_ram);
-    int span = s_requested_width < end ? s_requested_width : end;
-    int left = view_left(camera,s_requested_width,g_ram)-32;
-    int right = left+32+span+32;
+    int view = view_left(camera,s_requested_width,g_ram), lo, hi;
+    /* Widen only across the room the view really shows. Margins beyond a
+     * locked room are continued wall, not a reason to wake the neighbouring
+     * area; the native camera-32..camera+352 range always remains. */
+    room_span(g_ram,camera,&lo,&hi);
+    int left = (view > lo ? view : lo) - 32;
+    int right = (view+s_requested_width < hi ? view+s_requested_width : hi) + 32;
+    if (left > camera-32) left = camera-32;
+    if (right < camera+352) right = camera+352;
     if (left < 0) left=0;
     if (right > end) right=end;
     unsigned shift=read16(g_ram,0x116C2+r16(g_ram,0xB1D0)*2);
@@ -280,8 +320,152 @@ static void spawn_visible(void)
     }
     g_cpu=saved;
 }
+/* Always-on spawn ring. $116B0 clears every new object slot; its return
+ * address is the creation site. The slot's type and position are filled at
+ * the next actor snapshot ($2358), after the creator has stored them.
+ * rka_spawns reads the ring; recording never touches guest state. */
+typedef struct {
+    uint32_t serial, frame, caller, writer[2];
+    uint16_t slot, type, camera;
+    int16_t x, screen_x, shift;
+    uint8_t map, stage, filled, flags;
+} Spawn;
+enum { SPAWN_RING = 4096 };
+static Spawn s_spawns[SPAWN_RING];
+static unsigned s_spawn_count, s_spawn_filled;
+/* Guest stack words straight from work RAM: no bus access, no cycles. */
+static uint32_t stack32(uint32_t a)
+{ return (r16(g_ram,a & 65535u) << 16 | r16(g_ram,(a + 2) & 65535u)) & 0xFFFFFFu; }
+/* Creator attribution for slots filled without $116B0: the engine's write
+ * hook sees every guest write; keep the caller chain of the latest write to
+ * each slot's type word. Installed whenever no debug write log owns it. */
+extern void (*g_mem_write_trace_fn)(uint32_t byte_address, uint8_t value, uint32_t target_cycle);
+static uint32_t s_type_writer[64][2];
+static void watch_writes(uint32_t address, uint8_t value, uint32_t cycle)
+{
+    (void)value; (void)cycle;
+    address &= 0xFFFFFFu;
+    if (address < 0xFFC100u || address >= 0xFFE000u || (address & 0x7Eu)) return;
+    unsigned i = (address - 0xFFC000u) >> 7;
+    s_type_writer[i][0] = stack32(g_cpu.A[7]);
+    /* Inside the object loop ($201A) A1 is the running creator object. */
+    s_type_writer[i][1] = (r16(g_ram,g_cpu.A[1] & 65535u) << 16) | (g_cpu.A[1] & 65535u);
+}
+static void record_spawn(void)
+{
+    unsigned slot = g_cpu.A[2] & 0xFFFFFFu;
+    if (slot < 0xFFC000u || slot >= 0xFFE000u) return;
+    Spawn *e = &s_spawns[s_spawn_count % SPAWN_RING];
+    memset(e, 0, sizeof *e);
+    e->serial = s_spawn_count++;
+    e->frame = cmd_server_current_frame();
+    e->caller = stack32(g_cpu.A[7]);
+    e->writer[0] = e->caller;
+    e->writer[1] = (r16(g_ram,g_cpu.A[1] & 65535u) << 16) | (g_cpu.A[1] & 65535u);
+    e->slot = (uint16_t)slot;
+}
+static uint16_t s_slot_type[64];
+static void describe_spawn(Spawn *e)
+{
+    unsigned o = e->slot;
+    e->type = (uint16_t)r16(g_ram,o); e->x = (int16_t)r16(g_ram,o+6);
+    e->camera = (uint16_t)r16(g_ram,0xB1D2);
+    e->map = (uint8_t)r16(g_ram,0xB1D0); e->stage = (uint8_t)r16(g_ram,0xFB12);
+    /* $28 is the culling screen X + 128 once the object has run; before
+     * that, map-1 objects are screen-space and others world-space. */
+    e->screen_x = r16(g_ram,o+0x28) ? (int16_t)(r16(g_ram,o+0x28) - 128) :
+                  (int16_t)(e->map == 1 ? e->x : e->x - (int16_t)e->camera);
+    e->flags = g_ram[(o + 0x27) & 65535u];
+    e->filled = 1;
+}
+static void fill_spawns(void)
+{
+    uint64_t attributed = 0;
+    if (s_spawn_count - s_spawn_filled > SPAWN_RING) s_spawn_filled = s_spawn_count - SPAWN_RING;
+    for (; s_spawn_filled < s_spawn_count; ++s_spawn_filled) {
+        Spawn *e = &s_spawns[s_spawn_filled % SPAWN_RING];
+        describe_spawn(e);
+        attributed |= 1ull << ((e->slot - 0xC000u) / 0x80u);
+    }
+    /* Some generators fill slots without $116B0 (the shooter formations).
+     * A slot whose type changed since the last snapshot is a birth too; its
+     * caller stays 0 (observed, not attributed). */
+    for (unsigned i = 2; i < 64; ++i) {
+        unsigned o = 0xC000u + i * 0x80u, type = r16(g_ram,o);
+        if (type && type != s_slot_type[i] && !(attributed >> i & 1)) {
+            Spawn *e = &s_spawns[s_spawn_count % SPAWN_RING];
+            memset(e, 0, sizeof *e);
+            e->serial = s_spawn_count++;
+            e->frame = cmd_server_current_frame();
+            e->slot = (uint16_t)(0xFF0000u + o);
+            e->writer[0] = s_type_writer[i][0]; e->writer[1] = s_type_writer[i][1];
+            describe_spawn(e);
+            ++s_spawn_filled;
+        }
+        s_slot_type[i] = (uint16_t)type;
+    }
+}
+void rka_spawns_command(int id, const char *json)
+{
+    /* {"since":N} returns up to 256 entries with serial >= N. */
+    unsigned since = 0;
+    const char *at = json ? strstr(json, "\"since\"") : NULL;
+    if (at && (at = strchr(at, ':'))) since = (unsigned)strtoul(at + 1, NULL, 10);
+    unsigned oldest = s_spawn_count > SPAWN_RING ? s_spawn_count - SPAWN_RING : 0;
+    if (since < oldest) since = oldest;
+    static char out[256 * 200 + 128];
+    int n = snprintf(out, sizeof out, "{\"id\":%d,\"count\":%u,\"spawns\":[", id, s_spawn_count);
+    for (unsigned i = since, k = 0; i < s_spawn_count && k < 256; ++i, ++k) {
+        const Spawn *e = &s_spawns[i % SPAWN_RING];
+        n += snprintf(out + n, sizeof out - (size_t)n,
+            "%s{\"serial\":%u,\"frame\":%u,\"caller\":\"%06X\",\"writer\":\"%06X\",\"creator\":\"%08X\",\"slot\":\"%04X\",\"type\":%u,"
+            "\"x\":%d,\"screen_x\":%d,\"shift\":%d,\"camera\":%u,\"map\":%u,\"stage\":%u,\"flags\":%u,\"filled\":%u}",
+            k ? "," : "", e->serial, e->frame, e->caller, e->writer[0], e->writer[1], e->slot, e->type, e->x, e->screen_x,
+            e->shift, e->camera, e->map, e->stage, e->flags, e->filled);
+    }
+    snprintf(out + n, sizeof out - (size_t)n, "]}");
+    cmd_send_response(out);
+}
+/* Fixed-edge creation sites from tools/audit_edge_spawns.py: the hook PC is
+ * the instruction after the final X write into the new slot. camera: X is
+ * camera-relative world space (tiled scenes); otherwise map-1 screen space.
+ * zero_left: X=0 is a left-edge entry ($9A, and the rail table's 0/320). */
+typedef struct { uint32_t pc; uint8_t camera, zero_left; } EdgeSpawn;
+static const EdgeSpawn s_edge_spawns[] = {
+    { 0x0138E8u, 1, 0 }, /* $0138DC move.w $b1d2.w,$6(a2) ; addi #$180 */
+    { 0x016E04u, 0, 1 }, /* $016DFE type $96 X from the 0/320 table $16E46 */
+    { 0x016E38u, 0, 1 }, /* $016E34 type $9A clr.w $6(a2), enters at +1px */
+    { 0x01986Au, 1, 0 }, /* $01985E type $F6 at camera+$160 */
+    { 0x020ED6u, 1, 0 }, /* $020EC4 type $169 at camera-$20+$180 */
+    { 0x02ED8Au, 0, 0 }, /* $02ED84 X=-48 */
+    { 0x02EDB2u, 0, 0 }, /* $02EDAC X=-40 */
+    { 0x02F8FEu, 0, 0 }, /* $02F8F6 water-ride type $11 at X=$160 */
+    { 0x03077Eu, 1, 0 }, /* $03077A type $16 at camera+$140 */
+    { 0x031CD2u, 0, 0 }, /* $031CCA X=-80 */
+    { 0x036C74u, 0, 0 }, /* $036C6E X=-64 */
+    { 0x0390D0u, 0, 0 }, /* $0390C8 X=$160 */
+    { 0x03910Eu, 0, 0 }, /* $039106 X=$160 */
+    { 0x0391A0u, 0, 0 }, /* $03919A X=$160 */
+    { 0x03B5E0u, 0, 0 }, /* $03B5D8 X=$150 */
+    { 0x03C396u, 0, 0 }, /* $03C392 shooter wave $BB from $BC at X=$150 */
+    { 0x03CF86u, 0, 0 }, /* $03CF7E X=$150 */
+    { 0x03CFF2u, 0, 0 }, /* $03CFEA X=$150 */
+    { 0x03D216u, 0, 0 }, /* $03D20E X=$150 */
+    { 0x03D2A2u, 0, 0 }, /* $03D29A X=-16 */
+};
+static const EdgeSpawn *edge_spawn(uint32_t pc)
+{
+    for (unsigned i = 0; i < sizeof s_edge_spawns / sizeof *s_edge_spawns; ++i)
+        if (s_edge_spawns[i].pc == pc) return &s_edge_spawns[i];
+    return NULL;
+}
 int rka_video_hook(uint32_t pc)
 {
+    if (pc == 0x116B0) { record_spawn(); return 0; }
+    if (pc == 0x2358) {
+        if (!g_mem_write_trace_fn) g_mem_write_trace_fn = watch_writes;
+        fill_spawns();
+    }
     if (!enabled()) return 0;
     if (pc == 0x69BE || pc == 0x6AD2 || pc == 0x6BDA ||
         pc == 0x7964 || pc == 0x803A) { capture_scroll(); return 0; }
@@ -299,7 +483,7 @@ int rka_video_hook(uint32_t pc)
         s_history[s_serial % 3] = s_build;
     }
     if (!s_expanded || s_requested_width <= 320) return 0;
-    if (pc == 0x113D8 && scene_active(g_ram)) { spawn_visible();return 1; }
+    if (pc == 0x113D8 && scene_kind(g_ram) == SCENE_TILED && r16(g_ram,0xB1D0) != 9) { spawn_visible();return 1; }
     if (pc == 0x115EA) ++s_spawned;
     if (pc == 0x21B4) {
         unsigned o = g_cpu.A[1] & 65535u;
@@ -319,22 +503,33 @@ int rka_video_hook(uint32_t pc)
     unsigned map = r16(g_ram,0xB1D0);
     if (map < 1 || map > 9) return 0;
     int camera = r16(g_ram, 0xB1D2), left = view_left(camera, s_requested_width, g_ram);
-    int end = stage_width(g_ram);
-    int span = s_requested_width < end ? s_requested_width : end;
-    int extra_left = camera - left, extra_right = left + span - camera - 320;
+    int view_right = left + s_requested_width;
+    if (scene_kind(g_ram) == SCENE_TILED) {
+        /* As for placement: keep actors alive only across the shown room. */
+        int lo, hi;
+        room_span(g_ram, camera, &lo, &hi);
+        if (left < lo) left = lo;
+        if (view_right > hi) view_right = hi;
+    }
+    int extra_left = camera - left, extra_right = view_right - camera - 320;
+    if (extra_left < 0) extra_left = 0;
     if (extra_right < 0) extra_right = 0;
-    /* The two vehicle sequences allocate at fixed native screen edges rather
-     * than using the placement map. Shift only their newly written X words;
-     * their own cadence, object pool, motion and despawn logic stay native. */
-    unsigned stage = r16(g_ram,0xFB12);
-    if (map == 1 &&
-        ((stage == 2 && pc == 0x2F8FE) ||
-         (stage == 7 && pc == 0x16E04))) {
+    /* Scripted generators place new objects at fixed native screen edges
+     * instead of using the placement map. Each audited site follows the X
+     * store into a fresh slot (A2); move an off-view X to the matching wide
+     * edge. Cadence, object pool, motion and despawn stay native. */
+    const EdgeSpawn *edge = edge_spawn(pc);
+    if (edge) {
+        int kind = scene_kind(g_ram);
+        if (edge->camera ? kind != SCENE_TILED : map != 1) return 0;
         unsigned slot = g_cpu.A[2] & 65535u;
-        int x = (int16_t)r16(g_ram,slot+6);
-        int shift = pc == 0x2F8FE ? extra_right :
-                    (x == 0 ? -extra_left : extra_right);
-        if (shift) m68k_write16(0xFF0000u+slot+6,(uint16_t)(x+shift));
+        int x = (int16_t)r16(g_ram,slot+6), sx = edge->camera ? x - camera : x;
+        int shift = sx < 0 || (edge->zero_left && sx == 0) ? -extra_left : sx >= 320 ? extra_right : 0;
+        if (shift) {
+            g_ram[(slot+6) & 65535u] = (uint8_t)((x + shift) >> 8);
+            g_ram[(slot+7) & 65535u] = (uint8_t)(x + shift);
+            s_edge_shifts++;
+        }
         return 0;
     }
     unsigned o = g_cpu.A[1] & 65535u;
@@ -358,9 +553,14 @@ static void select_scene(const GVDP *v)
     else if (s_scene && (s_scene->stage != (int)r16(g_ram,0xFB12) ||
                         memcmp(s_scene->sat,v->vram+sat,640))) s_scene = NULL;
 }
-static void draw_sprite(const GVDP *v, const Sprite *s, int line, uint32_t *out,
-                        int width, int origin, int camera_x, int camera_y,
-                        const uint32_t *palette)
+/* Per-line sprite layer, composited with the planes exactly as the VDP
+ * does (genesis_vdp.c): first opaque sprite pixel wins, priority order
+ * S-hi > A-hi > B-hi > S-lo > A-lo > B-lo > backdrop, and in
+ * shadow/highlight mode palette-3 colours 14/15 are operators. */
+static uint8_t *s_spr_idx, *s_spr_flags;
+enum { SPR_OPAQUE = 1, SPR_HIGH = 2, SPR_SHADOW = 4, SPR_HILITE = 8 };
+static void draw_sprite(const GVDP *v, const Sprite *s, int line, int width,
+                        int origin, int camera_x, int camera_y, int sh_mode)
 {
     int x = s->screen ? s->x + (width - 320) / 2 : s->x - camera_x + origin;
     if (s->castle_parallax && s_scene && origin != (width - 320) / 2) {
@@ -379,13 +579,17 @@ static void draw_sprite(const GVDP *v, const Sprite *s, int line, uint32_t *out,
     int ty = (s->attr & 0x1000) ? ht - 1 - dy / 8 : dy / 8;
     for (int dx = 0; dx < wt * 8; ++dx) {
         int dst = x + dx;
-        if (dst < 0 || dst >= width || s_occupied[dst]) continue;
+        if (dst < 0 || dst >= width || (s_spr_flags[dst] & SPR_OPAQUE)) continue;
         int tx = (s->attr & 0x0800) ? wt - 1 - dx / 8 : dx / 8;
         unsigned attr = (s->attr & ~2047u) | ((s->attr + tx * ht + ty) & 2047u);
         unsigned p = pixel(v, attr, dx, dy);
         if (!p) continue;
-        s_occupied[dst] = 1;
-        if ((s->attr & 0x8000) || !s_priority[dst]) out[dst] = palette[p];
+        if (sh_mode && p == 62) s_spr_flags[dst] |= SPR_HILITE;
+        else if (sh_mode && p == 63) s_spr_flags[dst] |= SPR_SHADOW;
+        else {
+            s_spr_idx[dst] = (uint8_t)p;
+            s_spr_flags[dst] |= SPR_OPAQUE | ((s->attr & 0x8000) ? SPR_HIGH : 0);
+        }
     }
 }
 
@@ -400,137 +604,118 @@ static void draw_hud_margin(const uint32_t *native, uint32_t *out, int width)
         out[x] = native[(unsigned)(x-center) & 31u];
     }
 }
+static unsigned s_kind, s_lines_wide, s_lines_native;
+static int s_room_lo, s_room_hi;
+/* Per-frame name-table column survey: a column is blank when every row
+ * selects a fully transparent pattern. Cutscenes author only the 320px they
+ * show; such a plane's unseen columns are all blank. */
+static uint8_t s_blank_tile[2048], s_blank_col[2][128];
+static void survey_planes(const GVDP *v)
+{
+    for (unsigned t = 0; t < 2048; ++t) {
+        const uint8_t *pattern = v->vram + t * 32u;
+        unsigned any = 0;
+        for (unsigned i = 0; i < 32; ++i) any |= pattern[i];
+        s_blank_tile[t] = !any;
+    }
+    int wt = tiles(v->reg[16] & 3), ht = tiles((v->reg[16] >> 4) & 3);
+    unsigned base[2] = { (v->reg[2] & 56u) << 10, (v->reg[4] & 7u) << 13 };
+    for (int p = 0; p < 2; ++p)
+        for (int c = 0; c < wt && c < 128; ++c) {
+            int blank = 1;
+            for (int y = 0; y < ht && blank; ++y)
+                blank = s_blank_tile[r16(v->vram, base[p] + (unsigned)(y * wt + c) * 2u) & 2047u];
+            s_blank_col[p][c] = (uint8_t)blank;
+        }
+}
+/* True when this line's margins of a plane sample only blank columns while
+ * the native view samples authored ones: the plane then repeats its native
+ * 320px instead of showing empty name-table space. */
+static int unauthored(const GVDP *v, int p, int scroll, int width, int origin, int nw)
+{
+    int wt = tiles(v->reg[16] & 3), authored = 0;
+    for (int nx = -origin; nx < width - origin; nx += 8) {
+        int inside = nx >= 0 && nx < nw;
+        int c = (((nx - scroll) >> 3) & (wt - 1)) & 127;
+        if (!inside && !s_blank_col[p][c]) return 0;
+        if (inside && !s_blank_col[p][c]) authored = 1;
+    }
+    int c = (((width - origin - 1 - scroll) >> 3) & (wt - 1)) & 127;
+    return authored && s_blank_col[p][c];
+}
+static int native_wrap(int nx, int nw) { return ((nx % nw) + nw) % nw; }
 static void scanline(const GVDP *v, int line, const uint32_t *native, int nw,
                      uint32_t *out, int width)
 {
-    uint32_t palette[64];
-    for (int i = 0; i < 64; ++i) palette[i] = genesis_dac_cram_to_argb(v->cram[i], GENESIS_DAC_NORMAL);
-    uint32_t backdrop = palette[v->reg[7] & 63];
+    uint32_t palette[3][64];
+    for (int i = 0; i < 64; ++i) {
+        palette[0][i] = genesis_dac_cram_to_argb(v->cram[i], GENESIS_DAC_NORMAL);
+        palette[1][i] = genesis_dac_cram_to_argb(v->cram[i], GENESIS_DAC_SHADOW);
+        palette[2][i] = genesis_dac_cram_to_argb(v->cram[i], GENESIS_DAC_HIGHLIGHT);
+    }
+    unsigned backdrop = v->reg[7] & 63;
     if (!line) {
         ++s_frames; s_width = s_requested_width = width;
-        s_terrain_checks = s_terrain_errors = 0;
+        s_terrain_checks = s_terrain_errors = s_lines_wide = s_lines_native = 0;
         if (width > s_capacity) {
             uint8_t *a = malloc((size_t)width), *b = malloc((size_t)width);
-            if (a && b) { free(s_priority); free(s_occupied); s_priority=a; s_occupied=b; s_capacity=width; }
+            if (a && b) { free(s_spr_idx); free(s_spr_flags); s_spr_idx=a; s_spr_flags=b; s_capacity=width; }
             else { free(a); free(b); }
         }
         select_scene(v);
     }
     const uint8_t *r = s_scene ? s_scene->ram : g_ram;
-    int level = (scene_active(r) && scene_active(g_ram)) ||
-                (vehicle_active(r) && vehicle_active(g_ram));
-    if (nw != 320 || !(v->reg[1] & 64) || (v->reg[12] & 14) || s_capacity < width) {
-        for (int x = 0; x < width; ++x) out[x] = !(v->reg[1] & 64) ? native[0] : backdrop;
+    /* The presented actor snapshot and the live machine must agree on the
+     * scene class; a transition frame keeps its native presentation. */
+    int kind = scene_kind(r);
+    if (kind != scene_kind(g_ram)) kind = SCENE_NONE;
+    if (!line) s_kind = (unsigned)kind;
+    /* H32 and interlace keep the centered native image; shadow/highlight is
+     * composited below. */
+    if (nw != 320 || !(v->reg[1] & 64) || (v->reg[12] & 6) || s_capacity < width ||
+        kind == SCENE_NONE) {
+        uint32_t fill = !(v->reg[1] & 64) ? native[0] : palette[0][backdrop];
+        for (int x = 0; x < width; ++x) out[x] = fill;
         memcpy(out + (width - nw) / 2, native, (size_t)nw * sizeof *out);
+        ++s_lines_native;
         return;
     }
-    if (!level) {
-        for (int x = 0; x < width; ++x) out[x] = backdrop;
-        memcpy(out + (width - nw) / 2, native, (size_t)nw * sizeof *out);
-        return;
-    }
+    ++s_lines_wide;
+    int tiled = kind == SCENE_TILED, sh_mode = (v->reg[12] & 8) != 0;
     unsigned hs = (v->reg[13] & 63u) << 10;
     int hm = v->reg[11] & 3, hi = hm == 0 ? 0 : hm == 2 ? line & ~7 : line;
     int ha = (int16_t)r16(v->vram, hs + hi * 4);
-    /* RKA fills the name-table rows hidden by its HUD with an opaque black
-     * tile. Extend the first visible background tile row upward into those
-     * newly exposed margins, using its live art, palette and scroll strip. */
-    int bg_line = level && v->reg[18] == 4 && line < 32 ? 32 + (line & 7) : line;
-    int bhi = hm == 0 ? 0 : hm == 2 ? bg_line & ~7 : bg_line;
-    int hb = (int16_t)r16(v->vram, hs + bhi * 4 + 2);
+    int hb = (int16_t)r16(v->vram, hs + hi * 4 + 2);
     int camera = unwrap(-ha, r16(r, 0xB1D2));
     int cy = unwrap(v->vsram[0], r16(r, 0xB1D6));
-    if (!line) { s_camera = camera; s_left = level ? view_left(camera,width,r) : camera-(width-nw)/2; }
+    if (!line) {
+        s_camera = camera; s_left = view_left(camera,width,r);
+        if (kind == SCENE_TILED) room_span(r,camera,&s_room_lo,&s_room_hi);
+        else s_room_lo = s_room_hi = 0;
+        survey_planes(v);
+    }
     /* Keep the camera anchor fixed across the frame so per-strip/per-line
      * horizontal scroll remains visible instead of cancelling itself out. */
-    int origin = level ? s_camera - s_left : (width - nw) / 2;
+    int origin = s_camera - s_left;
     int center = (width - nw) / 2;
     unsigned map = r16(r,0xB1D0), stage = r16(r,0xFB12);
-    int bg_h = level && hm == 2 ? background_scroll(r,bg_line,hb,center-origin) : hb;
+    int bg_h = tiled && hm == 2 ? background_scroll(r,line,hb,center-origin) : hb;
     if (line == 128) s_bg_x = -center - bg_h;
     s_origin = origin;
     unsigned ba = (v->reg[2] & 56u) << 10, bb = (v->reg[4] & 7u) << 13;
-    memset(s_occupied,0,(size_t)width);
-    for (int x = 0; x < width; ++x) {
-        int nx = x - origin, wx = nx + camera;
-        int col = 0;
-        if (v->reg[11] & 4) {
-            int xc = nx < 0 ? 0 : nx >= nw ? nw - 1 : nx;
-            col = (xc >> 4) * 2;
-        }
-        int va = v->vsram[col] & 1023, vb = v->vsram[col+1] & 1023;
-        int wy = unwrap(va,r16(r,0xB1D6)) + line;
-        int bx = x - center - bg_h, by = bg_line + vb;
-        int edge_x = nx < 0 ? (nx & 31) : nx >= nw ? nw-32+((nx-nw)&31) : nx;
-        /* The water ride streams plane A through the native window. Reuse a
-         * known-good 32px sky strip for its newly exposed side columns. */
-        int vehicle_sky = level && map == 1 && stage == 2 &&
-                          (nx < 0 || nx >= nw);
-        if (vehicle_sky) bx = 128 + (nx & 31) + origin - center - bg_h;
-        /* Non-layout scenes stream only the native 320px plane A window.
-         * Beyond it, the wrapped name table can contain stale boss tiles or
-         * the previous room. Let the live plane B scenery fill that space. */
-        unsigned a = level && map != 1 ? terrain(r,wx,wy) :
-                     vehicle_sky ? plane(v,ba,128+(nx&31)-ha,line+va) :
-                     level && map == 1 ? plane(v,ba,edge_x-ha,line+va) :
-                     nx >= 0 && nx < nw ? plane(v,ba,nx-ha,line+va) : 0;
-        unsigned b = plane(v,bb,bx,by);
-        unsigned ap = bg_line == line ? pixel(v,a,wx,wy) : 0;
-        unsigned bp = pixel(v,b,bx,by);
-        unsigned color = ap && (a & 0x8000) ? ap : bp && (b & 0x8000) ? bp : ap ? ap : bp;
-        out[x] = color ? palette[color] : backdrop;
-        s_priority[x] = (uint8_t)((ap && (a & 0x8000)) || (bp && (b & 0x8000)));
-        if (level && nx >= 0 && nx < nw && !(x & 7)) {
-            unsigned expected = plane(v,ba,nx-ha,line+va);
-            ++s_terrain_checks;
-            if (pixel(v,a,wx,wy) != pixel(v,expected,wx,wy)) ++s_terrain_errors;
-        }
-    }
-    if (stage == 23 && map == 1 && width > 512) {
-        /* The flying-city set piece has only a 256px repeating background,
-         * even though its camera has no finite level limit. Across a very
-         * wide view, five identical skylines strobe behind the player. Keep
-         * the native view intact, then dissolve the repeats into a smoothed
-         * average of the city's colors before drawing the moving actors. */
-        static unsigned fog_red, fog_green, fog_blue;
-        unsigned red=0, green=0, blue=0;
-        int sample=origin < 0 ? 0 : origin;
-        int count=width-sample < 256 ? width-sample : 256;
-        for (int x=sample;x<sample+count;++x) {
-            red += (out[x] >> 16) & 255u;
-            green += (out[x] >> 8) & 255u;
-            blue += out[x] & 255u;
-        }
-        if (count > 0) {
-            red /= (unsigned)count; green /= (unsigned)count; blue /= (unsigned)count;
-            if (line <= 32) { fog_red=red; fog_green=green; fog_blue=blue; }
-            else {
-                fog_red=(fog_red*23u+red)/24u;
-                fog_green=(fog_green*23u+green)/24u;
-                fog_blue=(fog_blue*23u+blue)/24u;
-            }
-            for (int x=0;x<width;++x) {
-                int distance=x<origin ? origin-x : x>=origin+nw ? x-origin-nw+1 : 0;
-                if (!distance) continue;
-                unsigned mix=distance < 128 ? (unsigned)distance*2u : 256u;
-                uint32_t old=out[x];
-                unsigned r=((old>>16&255u)*(256u-mix)+fog_red*mix)>>8;
-                unsigned g=((old>>8&255u)*(256u-mix)+fog_green*mix)>>8;
-                unsigned b=((old&255u)*(256u-mix)+fog_blue*mix)>>8;
-                out[x]=0xFF000000u | r<<16 | g<<8 | b;
-                if (mix >= 128) s_priority[x]=0;
-            }
-        }
-    }
-    /* Player/HUD pieces occupy the reserved SAT prefix; actor mappings
-     * captured above replace the remaining SAT, including offscreen pieces. */
+    int wrap_a = !tiled && unauthored(v,0,ha,width,origin,nw);
+    int wrap_b = unauthored(v,1,bg_h + center - origin,width,origin,nw);
+
+    /* Sprites: front-group snapshot actors, the reserved hardware SAT
+     * prefix (player/HUD), then the remaining snapshot actors. */
+    memset(s_spr_flags,0,(size_t)width);
     unsigned sat = (v->reg[5] & 0x7Eu) << 9, index = 0;
     int on_line = 0;
     if (s_scene)
         for (unsigned i=0;i<s_scene->count;++i)
             if(s_scene->sprites[i].front)
-                draw_sprite(v,&s_scene->sprites[i],line,out,width,origin,
-                            s_scene->camera_x,s_scene->camera_y,palette);
+                draw_sprite(v,&s_scene->sprites[i],line,width,origin,
+                            s_scene->camera_x,s_scene->camera_y,sh_mode);
     for (int i=0;i<80;++i) {
         unsigned addr=sat+index*8;
         unsigned raw_x=r16(v->vram,addr+6)&511;
@@ -549,8 +734,8 @@ static void scanline(const GVDP *v, int line, const uint32_t *native, int nw,
             Sprite s = {0};
             s.x=(int)(r16(v->vram,addr+6)&511)-128+camera;
             s.y=(int)(r16(v->vram,addr)&511)-128+cy;
-            s.size=v->vram[(addr+2)&65535u];s.attr=(uint16_t)r16(v->vram,addr+4);s.screen=0;s.front=0;
-            draw_sprite(v,&s,line,out,width,origin,camera,cy,palette);
+            s.size=v->vram[(addr+2)&65535u];s.attr=(uint16_t)r16(v->vram,addr+4);
+            draw_sprite(v,&s,line,width,origin,camera,cy,sh_mode);
         }
         index=v->vram[(addr+3)&65535u]&127u;
         if (!index || index>=80) break;
@@ -558,34 +743,93 @@ static void scanline(const GVDP *v, int line, const uint32_t *native, int nw,
     if (s_scene)
         for (unsigned i=0;i<s_scene->count;++i)
             if(!s_scene->sprites[i].front)
-                draw_sprite(v,&s_scene->sprites[i],line,out,width,origin,
-                            s_scene->camera_x,s_scene->camera_y,palette);
+                draw_sprite(v,&s_scene->sprites[i],line,width,origin,
+                            s_scene->camera_x,s_scene->camera_y,sh_mode);
+
+    /* The flying city (stage 23) has only a 256px repeating background, even
+     * though its camera has no finite level limit. Across a very wide view,
+     * five identical skylines strobe behind the player. Beyond the native
+     * view the planes dissolve into a smoothed average of the city colors;
+     * the moving actors stay sharp above it. Pass 0 samples that average. */
+    int fog = stage == 23 && map == 1 && width > 512;
+    static unsigned fog_rgb[3];
+    for (int pass = fog ? 0 : 1; pass < 2; ++pass) {
+        unsigned sum[3] = {0,0,0}, samples = 0;
+        int sample_lo = origin < 0 ? 0 : origin, sample_hi = sample_lo + 256;
+        for (int x = 0; x < width; ++x) {
+            int nx = x - origin, wx = nx + camera;
+            int col = 0;
+            if (v->reg[11] & 4) {
+                /* 2-cell vertical scroll is defined only over the native
+                 * columns; the margins use the nearest edge column. */
+                int xc = nx < 0 ? 0 : nx >= nw ? nw - 1 : nx;
+                col = (xc >> 4) * 2;
+            }
+            int va = v->vsram[col] & 1023, vb = v->vsram[col+1] & 1023;
+            int wy = unwrap(va,r16(r,0xB1D6)) + line;
+            int inside = nx >= 0 && nx < nw;
+            int bx = (wrap_b && !inside ? native_wrap(nx,nw) + origin : x) - center - bg_h;
+            int by = line + vb;
+            int tx = tiled ? room_x(wx,s_room_lo,s_room_hi) : 0;
+            int pax = (wrap_a && !inside ? native_wrap(nx,nw) : nx) - ha;
+            unsigned a = tiled ? terrain(r,tx,wy) : plane(v,ba,pax,line+va);
+            unsigned b = plane(v,bb,bx,by);
+            unsigned ap = tiled ? pixel(v,a,tx,wy) : pixel(v,a,pax,line+va);
+            unsigned bp = pixel(v,b,bx,by);
+            int a_hi = ap && (a & 0x8000), b_hi = bp && (b & 0x8000);
+            if (pass == 0) {
+                if (x >= sample_lo && x < sample_hi) {
+                    uint32_t c = palette[0][a_hi ? ap : b_hi ? bp : ap ? ap : bp ? bp : backdrop];
+                    sum[0] += (c >> 16) & 255u; sum[1] += (c >> 8) & 255u; sum[2] += c & 255u;
+                    ++samples;
+                }
+                continue;
+            }
+            unsigned f = s_spr_flags[x], s_op = f & SPR_OPAQUE, s_hi = f & SPR_HIGH;
+            unsigned idx = s_op && s_hi ? s_spr_idx[x] : a_hi ? ap : b_hi ? bp :
+                           s_op ? s_spr_idx[x] : ap ? ap : bp ? bp : backdrop;
+            int level = 0;
+            if (sh_mode) {
+                int shadow = !((s_op && s_hi) || a_hi || b_hi), hilite = 0;
+                if (f & SPR_SHADOW) shadow = 1;
+                if (f & SPR_HILITE) { if (shadow) shadow = 0; else hilite = 1; }
+                level = hilite ? 2 : shadow ? 1 : 0;
+            }
+            out[x] = palette[level][idx];
+            int distance = !fog ? 0 : x < origin ? origin - x :
+                           x >= origin + nw ? x - origin - nw + 1 : 0;
+            /* Fog covers the planes. A sprite stays sharp wherever it would
+             * win over the planes, and also over high planes deep in fog. */
+            int sprite_wins = s_op && (s_hi || !(a_hi || b_hi) || distance >= 64);
+            if (distance && !sprite_wins) {
+                unsigned mix = distance < 128 ? (unsigned)distance * 2u : 256u;
+                uint32_t old = out[x];
+                unsigned c[3] = { (old >> 16) & 255u, (old >> 8) & 255u, old & 255u };
+                for (int k = 0; k < 3; ++k) c[k] = (c[k] * (256u - mix) + fog_rgb[k] * mix) >> 8;
+                out[x] = 0xFF000000u | c[0] << 16 | c[1] << 8 | c[2];
+            } else if (distance && s_op) out[x] = palette[0][s_spr_idx[x]];
+            if (tiled && nx >= 0 && nx < nw && !(x & 7)) {
+                unsigned expected = plane(v,ba,nx-ha,line+va);
+                ++s_terrain_checks;
+                if (pixel(v,a,wx,wy) != pixel(v,expected,wx,wy)) ++s_terrain_errors;
+            }
+        }
+        if (pass == 0 && samples) {
+            for (int k = 0; k < 3; ++k) {
+                unsigned avg = sum[k] / samples;
+                fog_rgb[k] = line <= 32 ? avg : (fog_rgb[k] * 23u + avg) / 24u;
+            }
+        }
+    }
     /* Preserve the hardware-rendered original viewport exactly. Raster
      * effects, special boss sprites and streamed tile changes can differ
-     * from our reconstruction; only the added side pixels need rebuilding. */
+     * from our reconstruction; only the added side pixels need rebuilding.
+     * At a clamped stage edge the wider camera keeps its own background
+     * parallax, so the reconstruction stands there. */
     int window_y=(v->reg[18]&31)*8;
     int window_line=(v->reg[18]&128) ? line>=window_y : line<window_y;
-    if (!window_line && (origin == center || (stage == 23 && map == 1)))
+    if (!window_line && (origin == center || fog))
         memcpy(out+origin,native,(size_t)nw*sizeof *out);
-    /* Several room transitions keep the previous room's layout entries in
-     * the extra columns even though the native edge is a solid room wall.
-     * Continue the live 32px wall strip at those audited stage boundaries. */
-    if (!window_line && level) {
-        int wall_left = stage == 4 || stage == 11 || stage == 15 || stage == 41;
-        int wall_right = stage == 6 || stage == 40 || stage == 15;
-        if (wall_left)
-            for (int x=0;x<origin && x<width;++x)
-                out[x] = native[(unsigned)(x-origin) & (stage == 15 ? 7u : 31u)];
-        if (wall_right)
-            for (int x=origin+nw;x<width;++x)
-                out[x] = native[nw-(stage == 15 ? 8 : 32)+
-                                ((x-origin-nw)&(stage == 15 ? 7 : 31))];
-        /* The rail is a native strip effect, not a level-map tile. */
-        if (stage == 7 && map == 1 && line >= 214)
-            for (int x=0;x<width;++x)
-                if (x < origin || x >= origin+nw)
-                    out[x] = native[16+((unsigned)x&15u)];
-    }
     /* The native window is a screen-space HUD, never a repeated world map. */
     if (window_line) {
         int start=(width-nw)/2;
@@ -597,11 +841,13 @@ static void scanline(const GVDP *v, int line, const uint32_t *native, int nw,
 void rka_video_command(int id, const char *json)
 {
     (void)json;
-    char out[640];
-    snprintf(out,sizeof out,"{\"id\":%d,\"enabled\":%d,\"width\":%d,\"view_left\":%d,"
+    static const char *kinds[] = { "none", "tiled", "planar" };
+    char out[800];
+    snprintf(out,sizeof out,"{\"id\":%d,\"enabled\":%d,\"scene\":\"%s\",\"room\":[%u,%u],"
+        "\"wide_lines\":%u,\"native_lines\":%u,\"edge_shifts\":%u,\"width\":%d,\"view_left\":%d,"
         "\"camera\":%d,\"native_x\":%d,\"bg_x_128\":%d,\"frames\":%u,\"terrain_checks\":%u,"
         "\"terrain_errors\":%u,\"sprites\":%u,\"spawn_mode\":\"%s\",\"spawned\":%u,\"sprite_overflow\":%u,\"published\":%u,\"displayed\":%u}",
-        id,enabled(),s_width,s_left,s_camera,s_origin,s_bg_x,s_frames,s_terrain_checks,s_terrain_errors,
+        id,enabled(),kinds[s_kind<3?s_kind:0],s_room_lo,s_room_hi,s_lines_wide,s_lines_native,s_edge_shifts,s_width,s_left,s_camera,s_origin,s_bg_x,s_frames,s_terrain_checks,s_terrain_errors,
         s_scene?s_scene->count:0,rka_video_spawn_mode(),s_spawned,s_sprite_overflow,s_serial,s_scene?s_scene->serial:0);
     cmd_send_response(out);
 }
