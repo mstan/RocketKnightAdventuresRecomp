@@ -38,7 +38,7 @@ for part in a.areas.split(','):
     lo, _, hi = part.partition('-')
     areas += range(int(lo), int(hi or lo) + 1)
 
-# Movement, jumps (C), attacks (B), rocket charge (A), climbing and idling.
+# Movement, B jumps, A/C attacks and rocket charge, climbing and idling.
 PATTERN = [('RIGHT',), ('RIGHT', 'C'), ('RIGHT', 'B'), ('RIGHT', 'A'), ('LEFT',), ('UP', 'B'),
            ('DOWN',), (), ('RIGHT', 'C', 'B'), ('LEFT', 'C'), ('UP',), ('RIGHT',)]
 

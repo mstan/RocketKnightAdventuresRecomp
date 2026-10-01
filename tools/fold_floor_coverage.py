@@ -4,7 +4,7 @@
 Inputs are runtime evidence from tools/coverage_sweep.py (and owner-save
 surveys): floor_coverage.toml files list call/jump targets the tier-3 floor
 executed because no recompiled function existed; exec_pcs.txt files from
---force-interp runs list every executed instruction start.
+force-interp runs or native floor capsules list executed instruction starts.
 
 A floor target is accepted only when all of these hold:
   * it is a ROM address not already a generated function entry;
@@ -102,10 +102,10 @@ for addr in sorted(floor - kept):
 accepted.sort()
 lines = [
     '# Validated tier-3 floor targets (tools/fold_floor_coverage.py).',
-    f'# Evidence: {len(floor_files)} floor_coverage.toml and {len(oracle_files)} force-interp',
-    '# exec_pcs.txt files from tools/coverage_sweep.py (all area indices) and owner saves.',
+    f'# Evidence: {len(floor_files)} floor_coverage.toml and {len(oracle_files)} executed-PC oracle inputs',
+    '# Executed-PC evidence from coverage sweeps and owner-save floor capsules.',
     '# Each entry was executed by the floor as a call/jump target and its straight-line',
-    '# run decodes cleanly and executed under the force-interp oracle.',
+    '# run decodes cleanly and appears in the executed-PC oracle.',
     f'# accepted={len(accepted)} rejected={len(rejected)}',
     '',
     '[functions]',
@@ -120,6 +120,6 @@ for addr, why in rejected:
 print(f'accepted {len(accepted)} ({sum(k == "interior" for _, k in accepted)} interior), '
       f'rejected {len(rejected)} -> {a.out}')
 if a.oracle_out:
-    a.oracle_out.write_text('# executed ROM instruction-start PCs: attract + all-area force-interp sweep\n' +
+    a.oracle_out.write_text('# executed ROM instruction-start PCs: attract, all-area sweep, and owner-save floor capsules\n' +
                             ''.join(f'{x:06X}\n' for x in sorted(oracle) if x < len(rom)))
     print(f'oracle {len(oracle)} PCs -> {a.oracle_out}')

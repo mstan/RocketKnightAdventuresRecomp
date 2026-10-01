@@ -1,4 +1,4 @@
-Rocket Knight Adventures Recomp v0.1.5
+Rocket Knight Adventures Recomp v0.1.6
 =====================================
 
 Bring your own Rocket Knight Adventures (USA) ROM: 1,048,576 bytes,
@@ -9,7 +9,7 @@ Windows x64: extract the entire ZIP into a writable folder, then launch
 RKARecomp.exe. Select your ROM in the launcher.
 
 Linux x86_64: put the AppImage in a writable folder, make it executable with
-chmod +x RocketKnightAdventuresRecomp-linux-x86_64-v0.1.5.AppImage, then run it.
+chmod +x RocketKnightAdventuresRecomp-linux-x86_64-v0.1.6.AppImage, then run it.
 Built on Ubuntu 24.04 (glibc 2.39); requires a compatible Linux installation
 and working OpenGL. If FUSE is unavailable, run with --appimage-extract-and-run.
 The launcher uses zenity, kdialog or yad for its file picker. Alternatively,
@@ -27,8 +27,9 @@ Mods > Cheats: each cheat is its own mod. Start Stage begins a new game at
 stage 1-7 and then continues normally; Infinite Lives, Infinite Health and
 Invincible are independent toggles.
 
-Controls: arrows to move, X for B (jump/rocket), Z for A, C for C,
-Enter for Start. Controllers and keyboard bindings are configurable in the
+Controls: arrows to move, X for B (jump), Z for A (attack/rocket charge),
+C for C (attack/rocket charge), and Enter for Start. Controllers and keyboard
+bindings are configurable in the
 launcher. Settings and ROM pointers live beside the EXE/AppImage:
 settings.ini, rka-video.ini and rom-RKA.cfg. Preserve these when upgrading.
 

@@ -35,9 +35,13 @@ animation and all guest state remain untouched. Once the view scrolls freely,
 the native sprite projection is retained.
 
 Scenes fall into three classes. Tiled scenes (maps 2-8, and map 9 boss arenas
-whose layout masks at `$B1E4` are real) draw terrain from the layout. Planar
-scenes (map 1 vehicles, shooters, set pieces and cutscenes, and the ending's
-map 9) never stream: their planes are loaded whole, so the live name tables
+whose layout masks at `$B1E4` are real) draw terrain from the layout. The
+stage-1 boss room (area 11) retains the previous area's layout metadata after
+switching to map 9. It uses the live plane as a planar scene, keeps the exact
+native boss chamber centered, and shows only sky in its side margins so the
+chamber cannot repeat at the name-table wrap. Other planar scenes (map 1
+vehicles, shooters, set pieces and cutscenes, and the ending's map 9) never
+stream: their planes are loaded whole, so the live name tables
 wrap correctly at the plane width and the view is always centered on the
 native one. Scenes with no block dictionary at `$B1F6` (the Continue screen,
 stage cards) keep their centered native presentation.
@@ -98,6 +102,12 @@ spawn band (screen X -96..-1 or 320..415; X=0 only at audited left entries)
 and emits the hook table `s_edge_spawns`. After each X store the hook moves an
 off-view object to the corresponding wider edge. The scripts retain their
 cadence, allocator and despawn logic.
+
+The stage-1 fire corridor places its launcher and fire source at native X=304,
+just inside that audit band. Four additional ROM-verified X-store hooks shift
+the linked launcher parts together to the wider right edge; their child fire
+objects inherit the shifted source position.
+
 The original cell loaders, allocator, fixed slots, remembered placement bits
 and respawn routines still own the objects. The native object pool remains
 finite, so very wide views can exhaust it; there is no CPU speed multiplier.
@@ -142,6 +152,11 @@ cut floor-executed targets across all 54 areas from 1777 to 16, with the RAM
 after 3600 scripted frames byte-identical in every area. The engine
 interpreter also runs game hooks, so hooks no longer depend on coverage.
 
+Owner stage-1 saves added thirteen ROM-validated floor entries around the fire
+corridor and boss handlers. Saved native floor capsules supplied their
+executed-PC oracle, including three later targets reached during a scripted
+boss encounter.
+
 The always-on spawn ring (`rka_spawns` debug command) records every object
 birth: `$116B0` callers directly, other slots by an object-table diff at each
 snapshot, attributed through the engine write hook to the creating object.
@@ -182,6 +197,7 @@ All addresses were checked against the original ROM bytes with Capstone.
 | `$01150C`, `$011548` | Top/bottom placement-cell helpers reused over wider range |
 | `$011584`, `$0115EA` | Native spawn allocator and successful-allocation observation |
 | `$0116D2` | Native remembered-placement / respawn handling |
+| `$01378C`, `$013814`, `$013898`, `$0138C0` | Stage-1 fire launcher/source X stores at camera+$130, before Y placement |
 | `$02F8FE` | Water-ride type `$12` controller, immediately after spawning type `$11` at native screen X `$160` |
 | `$016CA4` | Rail-ride type `$97` state-3 JMP-table target, generated as a callable stream to expose its creation hook |
 | `$016E04` | Rail-ride type `$96` creation, after the native left/right X table store |

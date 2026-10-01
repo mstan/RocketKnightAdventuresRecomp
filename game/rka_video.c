@@ -57,9 +57,10 @@ static unsigned read8(const uint8_t *r, unsigned a)
 static unsigned read16(const uint8_t *r, unsigned a)
 { return (read8(r, a) << 8) | read8(r, a + 1); }
 /* Scene classes. Tiled maps 2-8 stream plane A from the byte layout
- * ($2D7E). Map 9 stops streaming for a boss arena; inside a tiled stage its
- * layout stays valid ($B1E4 is a real width mask), while the ending's map 9
- * has none. Map 1 (vehicles, shooters, set pieces, cutscenes) never streams:
+ * ($2D7E). Map 9 stops streaming for a boss arena; most tiled stages keep
+ * a valid layout, but stage 1 keeps the previous area's metadata while its
+ * chamber is authored in the live plane. The ending's map 9 has no layout.
+ * Map 1 (vehicles, shooters, set pieces, cutscenes) never streams:
  * its planes are loaded whole and wrap at the plane width, so the live name
  * tables are valid beyond 320px. Every playable scene loads a block
  * dictionary at $B1F6; the Continue screen and stage cards do not, and keep
@@ -70,6 +71,10 @@ static int scene_kind(const uint8_t *r)
     unsigned mode = r16(r, 0xB002), map = r16(r, 0xB1D0);
     if ((mode != 4 && mode != 7) || !r32(r, 0xB1F6)) return SCENE_NONE;
     if (map >= 2 && map <= 8) return r32(r, 0xB1FA) ? SCENE_TILED : SCENE_NONE;
+    /* Stage 1's boss keeps the preceding room's layout metadata while its
+     * chamber and boss are drawn into the live name table. Decoding that
+     * stale layout replaces the encounter with outdoor sky. */
+    if (map == 9 && r16(r, 0xFB12) == 11) return SCENE_PLANAR;
     if (map == 9 && r32(r, 0xB1FA) && r16(r, 0xB1E4) != 0xFFFF) return SCENE_TILED;
     return map == 1 || map == 9 ? SCENE_PLANAR : SCENE_NONE;
 }
@@ -430,8 +435,15 @@ void rka_spawns_command(int id, const char *json)
  * the instruction after the final X write into the new slot. camera: X is
  * camera-relative world space (tiled scenes); otherwise map-1 screen space.
  * zero_left: X=0 is a left-edge entry ($9A, and the rail table's 0/320). */
-typedef struct { uint32_t pc; uint8_t camera, zero_left; } EdgeSpawn;
+typedef struct { uint32_t pc; uint8_t camera, zero_left; uint16_t right_min; } EdgeSpawn;
 static const EdgeSpawn s_edge_spawns[] = {
+    /* The fire corridor's fixed launcher starts at camera+$130 (X=304),
+     * sixteen pixels inside the native edge. Its new parts and projectiles
+     * must follow the wider edge together, or they appear in mid-screen. */
+    { 0x01378Cu, 1, 0, 304 }, /* type $3E launcher */
+    { 0x013814u, 1, 0, 304 }, /* periodic type $3F fire source */
+    { 0x013898u, 1, 0, 304 }, /* type $69 launcher phase */
+    { 0x0138C0u, 1, 0, 304 }, /* second type $3F fire source */
     { 0x0138E8u, 1, 0 }, /* $0138DC move.w $b1d2.w,$6(a2) ; addi #$180 */
     { 0x016E04u, 0, 1 }, /* $016DFE type $96 X from the 0/320 table $16E46 */
     { 0x016E38u, 0, 1 }, /* $016E34 type $9A clr.w $6(a2), enters at +1px */
@@ -524,7 +536,8 @@ int rka_video_hook(uint32_t pc)
         if (edge->camera ? kind != SCENE_TILED : map != 1) return 0;
         unsigned slot = g_cpu.A[2] & 65535u;
         int x = (int16_t)r16(g_ram,slot+6), sx = edge->camera ? x - camera : x;
-        int shift = sx < 0 || (edge->zero_left && sx == 0) ? -extra_left : sx >= 320 ? extra_right : 0;
+        int right_min = edge->right_min ? edge->right_min : 320;
+        int shift = sx < 0 || (edge->zero_left && sx == 0) ? -extra_left : sx >= right_min ? extra_right : 0;
         if (shift) {
             g_ram[(slot+6) & 65535u] = (uint8_t)((x + shift) >> 8);
             g_ram[(slot+7) & 65535u] = (uint8_t)(x + shift);
@@ -776,6 +789,10 @@ static void scanline(const GVDP *v, int line, const uint32_t *native, int nw,
             unsigned b = plane(v,bb,bx,by);
             unsigned ap = tiled ? pixel(v,a,tx,wy) : pixel(v,a,pax,line+va);
             unsigned bp = pixel(v,b,bx,by);
+            /* The stage-1 boss chamber is a 320px plane-A drawing. The VDP
+             * name table repeats it after 512px; outside the real chamber
+             * show the sky on plane B instead of another broken room edge. */
+            if (stage == 11 && map == 9 && !inside) ap = 0;
             int a_hi = ap && (a & 0x8000), b_hi = bp && (b & 0x8000);
             if (pass == 0) {
                 if (x >= sample_lo && x < sample_hi) {

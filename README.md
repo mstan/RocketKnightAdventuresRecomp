@@ -12,7 +12,7 @@ no community disassembly, so function discovery is heuristic instead of
 disasm-seeded. That makes RKA the proving ground for the engine's
 resilience layer (see below).
 
-## Status (v0.1.5)
+## Status (v0.1.6)
 
 - Boots, full attract/title flow, opening cinematic.
 - Stage 1 playable end to end: correct background parallax and
@@ -80,16 +80,16 @@ complete DLL import closure. Linux packages use pinned, hash-checked AppImage
 tools and test writable state paths. See [release instructions](RELEASING.md).
 
 ```powershell
-./tools/build-windows.ps1 -Version 0.1.5
+./tools/build-windows.ps1 -Version 0.1.6
 ```
 
 ```sh
-bash tools/build-linux.sh --version 0.1.5 --jobs 8
+bash tools/build-linux.sh --version 0.1.6 --jobs 8
 ```
 
-Windows output: `release-stage/*-windows-x64-v0.1.5.zip`.
-Linux output: `release-linux/*-linux-x86_64-v0.1.5.AppImage`.
-Both include SHA-256 checksum files. Linux v0.1.5 is built on Ubuntu 24.04;
+Windows output: `release-stage/*-windows-x64-v0.1.6.zip`.
+Linux output: `release-linux/*-linux-x86_64-v0.1.6.AppImage`.
+Both include SHA-256 checksum files. Linux v0.1.6 is built on Ubuntu 24.04;
 older distributions and Steam Deck have not been validated.
 
 ## Running
@@ -143,9 +143,9 @@ with the custom renderer is still needed.
 | Genesis | Keyboard | Pad (Xbox / DualSense) |
 | ------- | -------- | ---------------------- |
 | D-pad   | Arrows   | D-pad or left stick    |
-| B (jump / rocket) | X | A / Cross |
-| A (attack) | Z | B / Circle |
-| C (attack) | C | X / Square |
+| B (jump) | X | A / Cross |
+| A (attack / rocket charge) | Z | B / Circle |
+| C (attack / rocket charge) | C | X / Square |
 | Start   | Enter    | Start / Options        |
 
 ## License
