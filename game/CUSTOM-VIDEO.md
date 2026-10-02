@@ -14,8 +14,23 @@ Each layout byte selects a 32-pixel block containing 4×4 tile attributes.
 Patterns and palettes come from the live VDP at each rendered scanline.
 Plane B uses its native name table and scrolling. Horizontal whole-plane,
 per-strip and per-line scrolling, raster palette/scroll writes and vertical
-whole-plane / two-cell scrolling use the current VDP state. Extra two-cell
-scroll columns extend the nearest native edge column.
+whole-plane / two-cell scrolling use the current VDP state.
+
+When plane B shares plane A's name table (the crystal caves' lava, the chain
+rooms), it is terrain too: the streamer keeps one plane-height window of
+layout rows from the camera's Y down, and plane B shows a later part of that
+window (vertical scroll `$B1BC`, e.g. 256). Plane B then decodes from the
+layout at its own scroll, so the margins never show columns the streamer has
+not written yet. Both planes are checked against the live VDP inside the
+native view (`terrain_errors`).
+
+Extra two-cell scroll columns continue a recognised generator. `$7DBC`
+writes the chain sway: for column k,
+`-(sin8(angle + (k+1)*step) >> shift + $B1D6 + a5) + a4` (plane B clamps at
+-720), world-anchored, 32 columns of which the VDP shows 20. The loop head
+`$7DFC` records its parameters; the newest record that reproduces all 20 live
+VSRAM columns continues the wave across the margins (`wave_hits`/`wave_misses`).
+Without a match the margins use the nearest native edge column.
 
 Background parallax uses the wider camera's center, including at the stage
 edges where it stops moving before the original camera. The per-strip scroll
@@ -46,15 +61,35 @@ wrap correctly at the plane width and the view is always centered on the
 native one. Scenes with no block dictionary at `$B1F6` (the Continue screen,
 stage cards) keep their centered native presentation.
 
+A plane whose authored columns leave at least 256 blank pixels is one drawing
+in an empty layer (the stage-3 and stage-6 bosses, the airship, a boss
+laser), positioned in screen space by its H-scroll word. The game writes that
+word as a signed offset from the drawing's origin column; only the VDP wraps
+it at 512. The drawing is placed once at that offset, so a boss parked
+off-screen right (scroll +416) no longer wraps its far side into the left
+margin. A drawing that begins or ends exactly at a native screen edge (a beam
+fired from off-screen) continues its edge column across that margin.
+
 The tiled view clamps to the current room, the range `$3EAE` clamps the
 following camera to (`$B39C`..`$B39E` plus 320), widened to include the live
 camera during scripted pans. A room narrower than the view is centered on its
 midpoint, even at a stage end, so locked boss rooms keep the exact native view
 in the middle. Beyond a room the layout holds unrelated areas (the previous
 corridor, a castle exterior beside an interior); there the renderer repeats
-the room's outermost whole 32-pixel block column of terrain. Plane B and all
-actors keep their real positions. A plane whose unseen name-table columns are
-all blank (cutscenes author only 320 pixels) repeats its native 320 pixels.
+the room's outermost 32-pixel block column of terrain. Camera limits are one
+pixel short (`$B39E` and `$B1E8` are last camera X values: a 4096-pixel map
+stops at 3775), so a room's own blocks are those mostly inside its span; a
+native column outside them (a bridge-tower sliver at X=0) is drawn as room
+continuation too. Plane B keeps its real position. World actors whose pieces
+lie wholly beyond a locked room's blocks (water-surface pieces past a boss
+room) are not drawn over the continued wall.
+
+A planar plane whose unseen name-table columns hold no artwork (solid fills
+such as the ending's full-width letterbox bars and up to three stray cells do
+not count), while both native edge columns do, is a 320-pixel picture. It
+continues mirrored at the native edges: seamless at the border, and no edge
+feature (the ending's castle) reappears whole on the opposite side. Beyond the
+plane width a margin wraps onto the native columns, which do not decide.
 The stage-1 tank bridge is a 320-pixel locked room with a curved fence.
 Repeating only a sloped edge block makes the rail sawtooth, so its margins
 reflect the complete authored bridge span at each room edge. The centered
@@ -71,7 +106,8 @@ nine-bit hardware SAT X can wrap by 512 pixels into that viewport, leaving
 partial carts, enemies and other sprite fragments in the native play area.
 After capturing each unwrapped mapping, the renderer skips hardware pieces
 whose world-space X is outside the SAT range. The wide sprites stay visible at
-their true positions.
+their true positions. Object positions are signed: vehicle and shooter scenes
+enter actors from the left at negative X, alive and firing before X reaches 0.
 
 The native window/HUD counters stay centered. Its undecorated 32-pixel border
 repeats across the added margins for all 32 HUD rows, covering water and other
@@ -109,6 +145,13 @@ spawn band (screen X -96..-1 or 320..415; X=0 only at audited left entries)
 and emits the hook table `s_edge_spawns`. After each X store the hook moves an
 off-view object to the corresponding wider edge. The scripts retain their
 cadence, allocator and despawn logic.
+
+The audit also follows register-passed X: a shared creator that stores an
+input register into `$6(a2)` (the particle builder `$368B6` behind `$3689E`) is
+traced back to its entry and to every caller, through pass-through wrappers,
+where the same classification applies. Those sites hook the call's return
+address, where A2 still holds the new slot. This found the fire corridor's
+embers (type `$55`, D0 = camera+`$140`, `$030276`/`$0303DC`).
 
 The stage-1 fire corridor places its launcher and fire source at native X=304,
 just inside that audit band. Four additional ROM-verified X-store hooks shift
@@ -168,6 +211,13 @@ The always-on spawn ring (`rka_spawns` debug command) records every object
 birth: `$116B0` callers directly, other slots by an object-table diff at each
 snapshot, attributed through the engine write hook to the creating object.
 
+The always-on presentation ring (`custom_video_history`, `{"since":N}`, 128
+records per reply, 4096 frames) keeps one record per rendered frame: scene
+class, plane and native camera, actor camera, view left, origin, room span,
+wrap/sparse flags, whether the native image was copied back, native-fallback
+lines and actor count. `custom_video_sprites` returns the presented actor
+snapshot (world or screen coordinates, object slot and type).
+
 ## Audited USA addresses
 
 All addresses were checked against the original ROM bytes with Capstone.
@@ -185,11 +235,16 @@ All addresses were checked against the original ROM bytes with Capstone.
 | `$FFB1D2`, `$FFB1D6` | Camera X/Y, integer words of 16.16 values |
 | `$FFB1C8`, `$FFB1CC` | Actor camera, including shake and the SAT bias |
 | `$FFB1E4`, `$FFB1E6` | Layout coordinate masks (OR 31 for pixel coordinates) |
-| `$FFB1E8` | Maximum camera X; add 320 for level width |
+| `$FFB1E8` | Maximum camera X; add 321 for level width |
 | `$FFB1EC` | Byte-layout row stride |
 | `$FFB1F6`, `$FFB1FA` | Block dictionary and byte-layout pointers, ROM or RAM |
 | `$FFFB12` | Stage index |
 | `$002D7E`, `$0032B6` | Native terrain streamers proving the 4×4 block format |
+| `$FFB1B8`, `$FFB1BC` | Plane B camera X/Y (written to `$FFE802`/`$FFF602`) |
+| `$007DBC`, `$007DFC` | Per-column VSRAM wave generator and its loop head (chain sway) |
+| `$000F1E`, `$000F28` | 8-bit sine lookup used by the wave generator |
+| `$03689E`, `$0368B6` | Shared particle builder; X arrives in D0 |
+| `$03027C`, `$0303E2` | Returns from the two camera+`$140` ember creations |
 | `$001FB0` | Begin actor mapping capture |
 | `$0021AE` | Mapping header, before hardware piece limit and coordinate mask |
 | `$0021B4` | Post-compare branch that skips wrapped hardware pieces for distant world actors |

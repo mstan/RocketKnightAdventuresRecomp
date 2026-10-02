@@ -45,6 +45,8 @@ static int rka_instruction_hook(uint32_t pc)
 static const GameDebugCommand rka_commands[] = {
     { "custom_video", rka_video_command },
     { "rka_spawns", rka_spawns_command },
+    { "custom_video_history", rka_video_history_command },
+    { "custom_video_sprites", rka_video_sprites_command },
 };
 const GameSpec g_game_spec = {
     .video                  = &rka_video,

@@ -23,6 +23,7 @@ p.add_argument('--slot', type=int)
 p.add_argument('--save-file', type=Path, help='replace the selected ZIP entry with this native save')
 p.add_argument('--frames', type=int, default=120)
 p.add_argument('--spawn-range', choices=('expanded', 'original'), default='expanded')
+p.add_argument('--cheats', default='', help='Playtest Cheats ini keys, e.g. invincible=1,infinite_lives=1')
 a = p.parse_args()
 root = Path(__file__).resolve().parents[1]
 out = a.out.resolve()
@@ -50,7 +51,8 @@ for stage, zpath in sources:
                     shutil.copy2(dll, run / dll.name)
                 save = a.save_file.read_bytes() if a.save_file else z.read(item)
                 (run / 'save.bin').write_bytes(save)
-                (run / 'rka-video.ini').write_text(f'spawn_range={a.spawn_range}\n')
+                cheats = ''.join(f'{kv}\n' for kv in a.cheats.split(',') if kv)
+                (run / 'rka-video.ini').write_text(f'spawn_range={a.spawn_range}\n{cheats}')
                 # Let reset reach RKA's idle loop before replacing guest state.
                 script = 'WAIT 600\nLOAD_STATE ' + (run / 'save.bin').as_posix() + '\nWAIT 3\n'
                 # Owner's own-backend saves have a 101-byte header before

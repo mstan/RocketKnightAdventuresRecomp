@@ -246,6 +246,14 @@ kind = "game_hook"
 [[widescreen_site]]
 addr = 0x020ED6
 kind = "game_hook"
+# Register-passed X (D0 = camera+$140) into the particle builder $3689E;
+# hooked at the call's return, where A2 still holds the new slot.
+[[widescreen_site]]
+addr = 0x03027C
+kind = "game_hook"
+[[widescreen_site]]
+addr = 0x0303E2
+kind = "game_hook"
 [[widescreen_site]]
 addr = 0x02ED8A
 kind = "game_hook"
@@ -290,6 +298,12 @@ addr = 0x03D216
 kind = "game_hook"
 [[widescreen_site]]
 addr = 0x03D2A2
+kind = "game_hook"
+
+# Per-column vertical scroll generator loop head (stage-6 chain sway): the
+# renderer records its wave parameters to continue it across the margins.
+[[widescreen_site]]
+addr = 0x007DFC
 kind = "game_hook"
 
 # Capture the camera and autonomous-motion terms before per-strip BG scroll

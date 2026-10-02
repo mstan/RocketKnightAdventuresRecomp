@@ -8,6 +8,10 @@ world space) outside the native 0..319 view. Constants reach the store
 directly, through a data register loaded earlier in the same straight-line
 run, or through a following ADDI/SUBI on the stored word.
 
+A creator helper that stores an input register is followed to its callers,
+where the same constant/camera classification applies (hooked at the call's
+return address).
+
 Prints one row per site and, with --toml, the matching `[[widescreen_site]]`
 blocks (hooked at the instruction after the final X write) plus a C table.
 """
@@ -173,6 +177,87 @@ for k, x in enumerate(addrs):
         continue
     rows.append((x, hook, space, whole, side, f'{i.mnemonic} {i.op_str}'))
 
+# Register-passed X: a shared creator stores an input data register into
+# $6(a2) (the debris/particle builder $368B6 behind $3689E). The constant
+# lives at each call site, so trace the register back to the routine entry,
+# then to every caller (through pass-through wrappers) and classify the value
+# there. The hook is the call's return address: A2 still holds the new slot.
+callers = {}
+for x in addrs:
+    i = insn.get(x)
+    if i and i.mnemonic.split('.')[0] in ('jsr', 'bsr') and re.fullmatch(r'\$[0-9a-f]+(\.l)?', i.op_str):
+        callers.setdefault(int(i.op_str[1:].split('.')[0], 16), []).append(x)
+
+def writes(i, reg):
+    ops = [o.strip() for o in i.op_str.split(',')]
+    if not ops:
+        return False
+    dest = ops[-1]
+    if dest == reg:
+        return True
+    if i.mnemonic.startswith('movem') and not dest.startswith(('-(', '(', '$')):
+        for part in dest.split('/'):
+            lo, _, hi = part.partition('-')
+            if lo[0] == reg[0] and int(lo[1]) <= int(reg[1]) <= int((hi or lo)[1]):
+                return True
+    return False
+
+def input_entries(k, reg):
+    """Entries of the straight-line code ending before addrs[k] that receive
+    `reg` unmodified from their caller, or None when it is written first."""
+    found = []
+    for j in range(k - 1, -1, -1):
+        cur, nxt = addrs[j], addrs[j + 1]
+        if nxt in callers:
+            found.append(nxt)
+        i = insn.get(cur)
+        if not i or cur + i.size != nxt:
+            return found or None
+        if i.mnemonic.split('.')[0] in ('rts', 'rte', 'jmp', 'bra'):
+            return found or None
+        if i.mnemonic.split('.')[0] in ('jsr', 'bsr') or writes(i, reg):
+            return None
+    return found or None
+
+def classify(whole):
+    if -96 < whole < 0:
+        return 'left'
+    if 320 <= whole < 416:
+        return 'right'
+    return None
+
+for k, x in enumerate(addrs):
+    i = insn.get(x)
+    if not i or not i.mnemonic.startswith('move'):
+        continue
+    ops = [o.strip() for o in i.op_str.split(',')]
+    if len(ops) != 2 or ops[1] != '$6(a2)' or not re.fullmatch(r'd[0-7]', ops[0]):
+        continue
+    size = i.mnemonic.split('.')[-1]
+    if register_value(k, ops[0], size):
+        continue   # resolved locally above
+    todo = [(e, ops[0]) for e in (input_entries(k, ops[0]) or [])]
+    seen = set()
+    while todo:
+        entry, reg = todo.pop()
+        if (entry, reg) in seen:
+            continue
+        seen.add((entry, reg))
+        for site in callers.get(entry, []):
+            ks = order[site]
+            got = register_value(ks, reg, size)
+            if got is None:
+                todo += [(e, reg) for e in (input_entries(ks, reg) or [])]
+                continue
+            v, space = got
+            whole = signed16(v >> 16) if size == 'l' else signed16(v)
+            side = classify(whole)
+            hook = site + insn[site].size
+            if side and hook in order:
+                rows.append((site, hook, space, whole, side,
+                             f'{insn[site].mnemonic} {insn[site].op_str} -> {i.mnemonic} {i.op_str} @${x:06X}'))
+
+rows.sort()
 for x, hook, space, whole, side, text in rows:
     print(f'{x:06X} hook {hook:06X} {space:6} x={str(whole):>5} {side:5} | {text}')
 if a.toml:

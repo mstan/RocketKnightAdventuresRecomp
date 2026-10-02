@@ -19,7 +19,7 @@ static int s_mode, s_requested_width = 320, s_expanded = 1;
 static double s_ratio = 16.0 / 9.0;
 typedef struct {
     int x, y;
-    uint16_t attr, fraction_x;
+    uint16_t attr, fraction_x, object, type;
     uint8_t size, screen, front, castle_parallax;
 } Sprite;
 typedef struct {
@@ -78,7 +78,10 @@ static int scene_kind(const uint8_t *r)
     if (map == 9 && r32(r, 0xB1FA) && r16(r, 0xB1E4) != 0xFFFF) return SCENE_TILED;
     return map == 1 || map == 9 ? SCENE_PLANAR : SCENE_NONE;
 }
-static int stage_width(const uint8_t *r) { return (int)r16(r, 0xB1E8) + 320; }
+/* $B1E8 (and the room limit $B39E) is the last camera X, one less than the
+ * layout width minus 320: a 4096px map stops its camera at 3775, so its
+ * final pixel column is never on screen natively. */
+static int stage_width(const uint8_t *r) { return (int)r16(r, 0xB1E8) + 321; }
 /* $3EAE clamps the following camera to [$B39C,$B39E], the current room.
  * Its scripted pans ($3C50) may move outside a stale range, so the bounds
  * always include the live camera. Returns the room's world span [lo,hi). */
@@ -110,16 +113,24 @@ static int view_left(int camera, int width, const uint8_t *r)
  * the castle exterior beside an interior, the next section. Continue the
  * room's outermost whole 32px block column instead. Only terrain is
  * substituted; plane B and actors keep their real positions. */
+/* The room's own 32px block columns. Camera limits are pixel-exact and
+ * off by one ($B39E is a last camera X), so a room edge can expose one
+ * pixel of the neighbouring block or hide one of its own: a block belongs
+ * to the room when most of it is inside. */
+static void room_blocks(int lo, int hi, int *first, int *last)
+{ *first = (lo + 16) & ~31; *last = (hi + 16) & ~31; }
 static int room_x(int wx, int lo, int hi)
 {
-    int first = (lo + 31) & ~31, last = hi & ~31;
+    int first, last;
+    room_blocks(lo, hi, &first, &last);
     if (last - first < 32) return wx;
-    if (wx < lo) return first + ((wx - first) & 31);
-    if (wx >= hi) return last - 32 + ((wx - last) & 31);
+    if (wx < first) return first + ((wx - first) & 31);
+    if (wx >= last) return last - 32 + ((wx - last) & 31);
     return wx;
 }
 static int bridge_x(int wx, int lo, int hi)
 {
+    room_blocks(lo, hi, &lo, &hi);
     /* The stage-1 tank arena is exactly one native viewport wide. Repeating
      * either sloped 32px edge block makes the suspension cable sawtooth at
      * wide ratios. Reflect the authored bridge span at each end instead;
@@ -170,6 +181,7 @@ int rka_video_set_spawn(const char *mode)
     return 1;
 }
 const char *rka_video_spawn_mode(void) { return s_expanded ? "expanded" : "original"; }
+static void wave_reset(void);
 void rka_video_reset(void)
 {
     memset(&s_build, 0, sizeof s_build);
@@ -178,6 +190,7 @@ void rka_video_reset(void)
     s_scene = NULL; s_serial = s_frames = s_spawned = s_edge_shifts = 0;
     s_sprite_overflow = s_terrain_checks = s_terrain_errors = 0;
     memset(s_scroll,0,sizeof s_scroll); s_scroll_serial = 0;
+    wave_reset();
 }
 
 /* $69BE/$6AD2/$6BDA/$7964/$803A: D4 is autonomous motion plus
@@ -202,6 +215,65 @@ static void capture_scroll(void)
     strip->phase = g_cpu.D[4] - (shift ? (uint32_t)(strip->camera >> shift) : 0);
     strip->native_h = (uint16_t)((0u - g_cpu.D[4]) >> 16);
     strip->valid = 1;
+}
+
+/* Per-column vertical scroll generator $7DBC (the stage-6 chain sway and
+ * its plane-B twin): for column k it stores
+ *   -(sin8(angle + (k+1)*step) >> shift + $B1D6 + a5) + a4
+ * (B clamps at -720) into the VSRAM shadow, world-anchored, 32 columns of
+ * which the VDP shows 20. The loop head $7DFC records the parameters so the
+ * margins continue the same wave instead of freezing the edge column. */
+typedef struct {
+    unsigned serial;
+    uint16_t angle, step, camera_y, a5, a4;
+    uint8_t shift, clamp;
+} Wave;
+enum { WAVE_HISTORY = 4 };
+static Wave s_wave[2][WAVE_HISTORY];
+static unsigned s_wave_serial;
+static const Wave *s_wave_sel[2];
+static unsigned s_wave_hits, s_wave_misses;
+static void wave_reset(void)
+{
+    memset(s_wave, 0, sizeof s_wave); s_wave_serial = s_wave_hits = s_wave_misses = 0;
+    s_wave_sel[0] = s_wave_sel[1] = NULL;
+}
+static void capture_wave(void)
+{
+    if ((g_cpu.D[2] & 0xFFFF) != 0x1F) return;      /* first column only */
+    unsigned base = g_cpu.A[3] & 0xFFFF;
+    int p = base == 0xF600 ? 0 : base == 0xF602 ? 1 : -1;
+    if (p < 0) return;
+    Wave *w = &s_wave[p][++s_wave_serial % WAVE_HISTORY];
+    w->serial = s_wave_serial;
+    w->angle = (uint16_t)g_cpu.D[1]; w->step = (uint16_t)g_cpu.D[6];
+    w->shift = (uint8_t)(g_cpu.D[0] & 15); w->camera_y = (uint16_t)r16(g_ram, 0xB1D6);
+    w->a5 = (uint16_t)g_cpu.A[5]; w->a4 = (uint16_t)g_cpu.A[4];
+    w->clamp = r16(g_ram, 0x2818) != 0;
+}
+static unsigned wave_value(const Wave *w, int k)
+{
+    unsigned angle = (unsigned)(w->angle + (k + 1) * w->step) & 0xFF;
+    int sine = (int8_t)g_rom[0xF28 + angle] >> w->shift;
+    int16_t v = (int16_t)(-(sine + w->camera_y + (int16_t)w->a5) + (int16_t)w->a4);
+    if (w->clamp && v >= -720) v = -720;
+    return (unsigned)v & 1023u;
+}
+/* The newest recorded wave that reproduces all 20 live VSRAM columns. */
+static void select_waves(const GVDP *v)
+{
+    for (int p = 0; p < 2; ++p) {
+        s_wave_sel[p] = NULL;
+        if (!(v->reg[11] & 4)) continue;
+        for (int i = 0; i < WAVE_HISTORY; ++i) {
+            const Wave *w = &s_wave[p][i];
+            if (!w->serial || (s_wave_sel[p] && s_wave_sel[p]->serial > w->serial)) continue;
+            int k = 0;
+            while (k < 20 && wave_value(w, k) == (v->vsram[k * 2 + p] & 1023u)) ++k;
+            if (k == 20) s_wave_sel[p] = w;
+        }
+        if (s_wave_sel[p]) ++s_wave_hits; else if (s_wave[p][0].serial || s_wave[p][1].serial) ++s_wave_misses;
+    }
 }
 
 static int background_scroll(const uint8_t *r, int line, int native_h, int delta)
@@ -279,7 +351,9 @@ static void capture_actor(void)
             x += (int16_t)r16(g_ram, o + 0x28) - 128;
             y += (int16_t)r16(g_ram, o + 0x2C) - 128;
         } else {
-            x += r16(g_ram,o+6); y += r16(g_ram,o+10);
+            /* Signed: vehicle and shooter scenes enter actors from the
+             * left at negative X, alive (and firing) before they reach 0. */
+            x += (int16_t)r16(g_ram,o+6); y += (int16_t)r16(g_ram,o+10);
         }
         if (s_build.count < MAX_SPRITES) {
             Sprite *s = &s_build.sprites[s_build.count++];
@@ -293,6 +367,7 @@ static void capture_actor(void)
              * after replacing the camera term. Guest positions stay intact. */
             s->castle_parallax = type == 0x07 || type == 0x3B;
             s->fraction_x = (uint16_t)r16(g_ram,o+8);
+            s->object = (uint16_t)o; s->type = (uint16_t)type;
         } else ++s_sprite_overflow;
     }
 }
@@ -461,6 +536,10 @@ static const EdgeSpawn s_edge_spawns[] = {
     { 0x016E38u, 0, 1 }, /* $016E34 type $9A clr.w $6(a2), enters at +1px */
     { 0x01986Au, 1, 0 }, /* $01985E type $F6 at camera+$160 */
     { 0x020ED6u, 1, 0 }, /* $020EC4 type $169 at camera-$20+$180 */
+    /* Register-passed X: D0 = camera+$140 handed to the particle builder
+     * $3689E/$368B6 (fire-corridor embers drifting in from the right). */
+    { 0x03027Cu, 1, 0 }, /* $030276 jsr $3689E, type $55 at camera+$140 */
+    { 0x0303E2u, 1, 0 }, /* $0303DC jsr $3689E, type $55 at camera+$140 */
     { 0x02ED8Au, 0, 0 }, /* $02ED84 X=-48 */
     { 0x02EDB2u, 0, 0 }, /* $02EDAC X=-40 */
     { 0x02F8FEu, 0, 0 }, /* $02F8F6 water-ride type $11 at X=$160 */
@@ -493,11 +572,12 @@ int rka_video_hook(uint32_t pc)
     if (!enabled()) return 0;
     if (pc == 0x69BE || pc == 0x6AD2 || pc == 0x6BDA ||
         pc == 0x7964 || pc == 0x803A) { capture_scroll(); return 0; }
+    if (pc == 0x7DFC) { capture_wave(); return 0; }
     if (pc == 0x1FB0) {
         s_build.count = 0;
         /* The actor camera includes shake and the SAT's 128px bias. */
-        s_build.camera_x = (uint16_t)(r16(g_ram, 0xB1C8) + 128);
-        s_build.camera_y = (uint16_t)(r16(g_ram, 0xB1CC) + 128);
+        s_build.camera_x = (int16_t)(r16(g_ram, 0xB1C8) + 128);
+        s_build.camera_y = (int16_t)(r16(g_ram, 0xB1CC) + 128);
         s_build.stage = r16(g_ram, 0xFB12);
     } else if (pc == 0x21AE) capture_actor();
     else if (pc == 0x2358) {
@@ -584,9 +664,16 @@ static void select_scene(const GVDP *v)
  * shadow/highlight mode palette-3 colours 14/15 are operators. */
 static uint8_t *s_spr_idx, *s_spr_flags;
 enum { SPR_OPAQUE = 1, SPR_HIGH = 2, SPR_SHADOW = 4, SPR_HILITE = 8 };
+/* World X span of the shown room's own blocks. Beyond a locked room the
+ * view continues its wall; actors that live out there (water surface
+ * pieces just past a boss room, the next corridor's enemies) are not in the
+ * room, so pieces entirely outside it are not drawn over that wall. */
+static int s_actor_lo = INT_MIN, s_actor_hi = INT_MAX;
 static void draw_sprite(const GVDP *v, const Sprite *s, int line, int width,
                         int origin, int camera_x, int camera_y, int sh_mode)
 {
+    if (!s->screen && (s->x + (((s->size >> 2) & 3) + 1) * 8 <= s_actor_lo || s->x >= s_actor_hi))
+        return;
     int x = s->screen ? s->x + (width - 320) / 2 : s->x - camera_x + origin;
     if (s->castle_parallax && s_scene && origin != (width - 320) / 2) {
         int64_t camera = (int32_t)r32(s_scene->ram,0xB1D2) + (int64_t)160 * 65536;
@@ -631,44 +718,121 @@ static void draw_hud_margin(const uint32_t *native, uint32_t *out, int width)
 }
 static unsigned s_kind, s_lines_wide, s_lines_native;
 static int s_room_lo, s_room_hi;
+/* Always-on presentation ring: one record per rendered frame, so probes read
+ * back the window of interest instead of arming a capture. Presentation-only
+ * state; never touches the guest. Queried by custom_video_history. */
+typedef struct {
+    uint32_t frame, serial;
+    int32_t camera, native_camera, actor_camera, view_left, origin, room_lo, room_hi;
+    uint16_t stage, map, width, sprites;
+    uint8_t kind, wrap_a, wrap_b, copied, native_lines, sparse_a, sparse_b;
+} FrameRecord;
+enum { FRAME_RING = 4096 };
+static FrameRecord s_frame_ring[FRAME_RING];
+static unsigned s_frame_ring_count;
+static FrameRecord *frame_record(void)
+{ return s_frame_ring_count ? &s_frame_ring[(s_frame_ring_count - 1) % FRAME_RING] : NULL; }
 /* Per-frame name-table column survey: a column is blank when every row
  * selects a fully transparent pattern. Cutscenes author only the 320px they
  * show; such a plane's unseen columns are all blank. */
-static uint8_t s_blank_tile[2048], s_blank_col[2][128];
+static uint8_t s_blank_tile[2048], s_plain_tile[2048], s_blank_col[2][128], s_bare_col[2][128];
+static int s_sparse[2], s_sparse_lo[2], s_sparse_len[2];
 static void survey_planes(const GVDP *v)
 {
     for (unsigned t = 0; t < 2048; ++t) {
         const uint8_t *pattern = v->vram + t * 32u;
-        unsigned any = 0;
-        for (unsigned i = 0; i < 32; ++i) any |= pattern[i];
+        unsigned any = 0, same = 1;
+        for (unsigned i = 0; i < 32; ++i) {
+            any |= pattern[i];
+            same &= pattern[i] == pattern[0];
+        }
         s_blank_tile[t] = !any;
+        /* One solid colour: letterbox bars and flat fills, not artwork. */
+        s_plain_tile[t] = same && (pattern[0] >> 4) == (pattern[0] & 15);
     }
     int wt = tiles(v->reg[16] & 3), ht = tiles((v->reg[16] >> 4) & 3);
     unsigned base[2] = { (v->reg[2] & 56u) << 10, (v->reg[4] & 7u) << 13 };
     for (int p = 0; p < 2; ++p)
         for (int c = 0; c < wt && c < 128; ++c) {
-            int blank = 1;
-            for (int y = 0; y < ht && blank; ++y)
-                blank = s_blank_tile[r16(v->vram, base[p] + (unsigned)(y * wt + c) * 2u) & 2047u];
-            s_blank_col[p][c] = (uint8_t)blank;
+            int cells = 0, art = 0;
+            for (int y = 0; y < ht; ++y) {
+                unsigned t = r16(v->vram, base[p] + (unsigned)(y * wt + c) * 2u) & 2047u;
+                cells += !s_blank_tile[t];
+                art += !s_plain_tile[t];
+            }
+            s_blank_col[p][c] = (uint8_t)!cells;
+            /* Bare: no artwork beyond solid fills (the ending's letterbox
+             * bars run the full plane width) and at most a few stray cells. */
+            s_bare_col[p][c] = (uint8_t)(art <= 3);
         }
-}
-/* True when this line's margins of a plane sample only blank columns while
- * the native view samples authored ones: the plane then repeats its native
- * 320px instead of showing empty name-table space. */
-static int unauthored(const GVDP *v, int p, int scroll, int width, int origin, int nw)
-{
-    int wt = tiles(v->reg[16] & 3), authored = 0;
-    for (int nx = -origin; nx < width - origin; nx += 8) {
-        int inside = nx >= 0 && nx < nw;
-        int c = (((nx - scroll) >> 3) & (wt - 1)) & 127;
-        if (!inside && !s_blank_col[p][c]) return 0;
-        if (inside && !s_blank_col[p][c]) authored = 1;
+    /* A plane whose authored columns leave at least 256 blank pixels is one
+     * drawing (a boss, a beam, a ship) placed in screen space by H-scroll,
+     * not a backdrop. The game writes that scroll as a signed screen offset
+     * from the drawing's origin column; only the VDP wraps it at the plane
+     * width. Keep the drawing as one span at that offset. */
+    for (int p = 0; p < 2; ++p) {
+        int best = 0, start = 0, n = wt < 128 ? wt : 128;
+        for (int c = 0; c < n; ++c) {
+            if (!s_blank_col[p][c] || (c && s_blank_col[p][c - 1])) continue;
+            int len = 0;
+            while (len < n && s_blank_col[p][(c + len) % n]) ++len;
+            if (len > best) { best = len; start = c; }
+        }
+        s_sparse[p] = best * 8 >= 256 && best < n;
+        if (!s_sparse[p]) continue;
+        int first = (start + best) % n, span = (n - best) * 8, plane_w = n * 8;
+        s_sparse_lo[p] = (first * 8 + span / 2) % plane_w < plane_w / 2 ? first * 8 : first * 8 - plane_w;
+        s_sparse_len[p] = span;
     }
-    int c = (((width - origin - 1 - scroll) >> 3) & (wt - 1)) & 127;
-    return authored && s_blank_col[p][c];
 }
-static int native_wrap(int nx, int nw) { return ((nx % nw) + nw) % nw; }
+/* Unwrapped plane X to sample for a sparse plane, or INT_MIN outside its
+ * drawing. A drawing that begins or ends exactly at a native screen edge
+ * (a beam fired from off-screen) was authored to be cut there: its edge
+ * column continues across that margin. scroll maps native screen X to plane
+ * X (plane_x = screen_x - scroll). */
+static int sparse_x(int p, int plane_x, int scroll, int nw)
+{
+    if (!s_sparse[p]) return plane_x;
+    int lo = s_sparse_lo[p], hi = lo + s_sparse_len[p];
+    if (plane_x >= lo && plane_x < hi) return plane_x;
+    if (plane_x < lo && lo + scroll == 0) return lo + ((plane_x - lo) & 7);
+    if (plane_x >= hi && hi + scroll == nw) return hi - 8 + ((plane_x - hi) & 7);
+    return INT_MIN;
+}
+/* True when a plane is a finite picture: artwork fills the native view up to
+ * both edge columns, and the columns the native view does not show include a run of at
+ * least 32 artwork-free pixels (cutscenes author 320 pixels; the princess
+ * room frames its picture with a doorway strip, then empty name table). Such
+ * a plane continues its native image into the margins instead of showing
+ * what lies beyond the picture. A plane blank at a native edge is a drawing
+ * inside an empty layer (a plane-drawn boss, a beam) and is handled as a
+ * sparse plane instead; periodic backdrops have no bare run. */
+static int unauthored(const GVDP *v, int p, int scroll, int nw)
+{
+    int wt = tiles(v->reg[16] & 3), n = wt < 128 ? wt : 128, shown = (nw + 7) >> 3;
+    int first = ((-scroll) >> 3) & (wt - 1) & 127;
+    int last = ((nw - 1 - scroll) >> 3) & (wt - 1) & 127;
+    if (s_bare_col[p][first] || s_bare_col[p][last] || shown >= n) return 0;
+    /* The picture fills the native view: a sparse layer (the shooter's
+     * asteroid field) can touch both edges by chance. */
+    int art = 0;
+    for (int k = 0; k < shown; ++k) art += !s_bare_col[p][(first + k) % n];
+    if (art * 4 < shown * 3) return 0;
+    int run = 0;
+    for (int k = shown; k < n; ++k) {
+        run = s_bare_col[p][(first + k) % n] ? run + 1 : 0;
+        if (run >= 4) return 1;
+    }
+    return 0;
+}
+/* An authored 320px picture continues into the margins mirrored at its
+ * edges: seamless at the native border, and no feature (a castle at one
+ * edge) reappears whole on the opposite side. */
+static int native_wrap(int nx, int nw)
+{
+    int n = ((nx % (2 * nw)) + 2 * nw) % (2 * nw);
+    return n < nw ? n : 2 * nw - 1 - n;
+}
 static void scanline(const GVDP *v, int line, const uint32_t *native, int nw,
                      uint32_t *out, int width)
 {
@@ -694,7 +858,17 @@ static void scanline(const GVDP *v, int line, const uint32_t *native, int nw,
      * scene class; a transition frame keeps its native presentation. */
     int kind = scene_kind(r);
     if (kind != scene_kind(g_ram)) kind = SCENE_NONE;
-    if (!line) s_kind = (unsigned)kind;
+    if (!line) {
+        s_kind = (unsigned)kind;
+        FrameRecord *f = &s_frame_ring[s_frame_ring_count++ % FRAME_RING];
+        memset(f, 0, sizeof *f);
+        f->frame = cmd_server_current_frame(); f->serial = s_scene ? s_scene->serial : 0;
+        f->kind = (uint8_t)kind; f->width = (uint16_t)width;
+        f->stage = (uint16_t)r16(r,0xFB12); f->map = (uint16_t)r16(r,0xB1D0);
+        f->native_camera = (int32_t)r16(r,0xB1D2); f->actor_camera = (int16_t)r16(r,0xB1C8);
+        f->sprites = (uint16_t)(s_scene ? s_scene->count : 0);
+    }
+    FrameRecord *record = frame_record();
     /* H32 and interlace keep the centered native image; shadow/highlight is
      * composited below. */
     if (nw != 320 || !(v->reg[1] & 64) || (v->reg[12] & 6) || s_capacity < width ||
@@ -703,6 +877,7 @@ static void scanline(const GVDP *v, int line, const uint32_t *native, int nw,
         for (int x = 0; x < width; ++x) out[x] = fill;
         memcpy(out + (width - nw) / 2, native, (size_t)nw * sizeof *out);
         ++s_lines_native;
+        if (record && record->native_lines < 255) ++record->native_lines;
         return;
     }
     ++s_lines_wide;
@@ -717,6 +892,13 @@ static void scanline(const GVDP *v, int line, const uint32_t *native, int nw,
         s_camera = camera; s_left = view_left(camera,width,r);
         if (kind == SCENE_TILED) room_span(r,camera,&s_room_lo,&s_room_hi);
         else s_room_lo = s_room_hi = 0;
+        select_waves(v);
+        s_actor_lo = INT_MIN; s_actor_hi = INT_MAX;
+        if (kind == SCENE_TILED) {
+            int first, last;
+            room_blocks(s_room_lo, s_room_hi, &first, &last);
+            if (last - first >= 32) { s_actor_lo = first; s_actor_hi = last; }
+        }
         survey_planes(v);
     }
     /* Keep the camera anchor fixed across the frame so per-strip/per-line
@@ -724,12 +906,25 @@ static void scanline(const GVDP *v, int line, const uint32_t *native, int nw,
     int origin = s_camera - s_left;
     int center = (width - nw) / 2;
     unsigned map = r16(r,0xB1D0), stage = r16(r,0xFB12);
-    int bg_h = tiled && hm == 2 ? background_scroll(r,line,hb,center-origin) : hb;
+    unsigned ba = (v->reg[2] & 56u) << 10, bb = (v->reg[4] & 7u) << 13;
+    /* Plane B on plane A's name table (the crystal caves' lava reflection
+     * re-scans the streamed terrain under H-int vertical scroll) is terrain
+     * too: decode it from the layout, or the margins show columns the
+     * streamer has not written yet. */
+    int shared_b = tiled && bb == ba;
+    int camera_b = shared_b ? unwrap(-hb, r16(r, 0xB1D2)) : 0;
+    int bg_h = tiled && hm == 2 && !shared_b ? background_scroll(r,line,hb,center-origin) : hb;
     if (line == 128) s_bg_x = -center - bg_h;
     s_origin = origin;
-    unsigned ba = (v->reg[2] & 56u) << 10, bb = (v->reg[4] & 7u) << 13;
-    int wrap_a = !tiled && unauthored(v,0,ha,width,origin,nw);
-    int wrap_b = unauthored(v,1,bg_h + center - origin,width,origin,nw);
+    int wrap_a = !tiled && unauthored(v,0,ha,nw);
+    int wrap_b = !shared_b && unauthored(v,1,bg_h + center - origin,nw);
+    if (record && line == 128) {
+        record->camera = camera; record->view_left = s_left; record->origin = origin;
+        record->room_lo = s_room_lo; record->room_hi = s_room_hi;
+        record->wrap_a = (uint8_t)wrap_a; record->wrap_b = (uint8_t)wrap_b;
+        record->copied = (uint8_t)(origin == center);
+        record->sparse_a = (uint8_t)s_sparse[0]; record->sparse_b = (uint8_t)s_sparse[1];
+    }
 
     /* Sprites: front-group snapshot actors, the reserved hardware SAT
      * prefix (player/HUD), then the remaining snapshot actors. */
@@ -786,24 +981,43 @@ static void scanline(const GVDP *v, int line, const uint32_t *native, int nw,
             int col = 0;
             if (v->reg[11] & 4) {
                 /* 2-cell vertical scroll is defined only over the native
-                 * columns; the margins use the nearest edge column. */
+                 * columns; the margins continue a recognised generator's
+                 * wave, otherwise the nearest edge column. */
                 int xc = nx < 0 ? 0 : nx >= nw ? nw - 1 : nx;
                 col = (xc >> 4) * 2;
             }
             int va = v->vsram[col] & 1023, vb = v->vsram[col+1] & 1023;
+            if ((v->reg[11] & 4) && (nx < 0 || nx >= nw)) {
+                int k = nx >= 0 ? nx >> 4 : -((15 - nx) >> 4);
+                if (s_wave_sel[0]) va = (int)wave_value(s_wave_sel[0], k);
+                if (s_wave_sel[1]) vb = (int)wave_value(s_wave_sel[1], k);
+            }
             int wy = unwrap(va,r16(r,0xB1D6)) + line;
             int inside = nx >= 0 && nx < nw;
             int bx = (wrap_b && !inside ? native_wrap(nx,nw) + origin : x) - center - bg_h;
             int by = line + vb;
-            int tx = tiled ? (stage == 2 && map == 9 &&
-                              s_room_hi - s_room_lo == 320
-                              ? bridge_x(wx,s_room_lo,s_room_hi)
-                              : room_x(wx,s_room_lo,s_room_hi)) : 0;
+            int bridge = tiled && stage == 2 && map == 9 && s_room_hi - s_room_lo == 320;
+            int tx = !tiled ? 0 : bridge ? bridge_x(wx,s_room_lo,s_room_hi)
+                                         : room_x(wx,s_room_lo,s_room_hi);
+            /* The streamer keeps one plane-height window of layout rows
+             * from the camera's Y down; plane B (the lava below the caves,
+             * vertical scroll $B1BC) shows a later part of that window. */
+            int ph = tiles((v->reg[16] >> 4) & 3) * 8, top = (int)r16(r,0xB1D6);
+            int wbx = nx + camera_b;
+            int wby = top + ((vb + line - top) % ph + ph) % ph;
+            int tbx = !shared_b ? 0 : bridge ? bridge_x(wbx,s_room_lo,s_room_hi)
+                                             : room_x(wbx,s_room_lo,s_room_hi);
             int pax = (wrap_a && !inside ? native_wrap(nx,nw) : nx) - ha;
+            int sa = tiled || wrap_a ? pax : sparse_x(0,pax,ha,nw);
+            int sb = wrap_b || shared_b ? bx : sparse_x(1,bx,bg_h,nw);
+            if (sa != INT_MIN) pax = sa;
+            if (sb != INT_MIN) bx = sb;
             unsigned a = tiled ? terrain(r,tx,wy) : plane(v,ba,pax,line+va);
-            unsigned b = plane(v,bb,bx,by);
+            unsigned b = shared_b ? terrain(r,tbx,wby) : plane(v,bb,bx,by);
             unsigned ap = tiled ? pixel(v,a,tx,wy) : pixel(v,a,pax,line+va);
-            unsigned bp = pixel(v,b,bx,by);
+            unsigned bp = shared_b ? pixel(v,b,tbx,wby) : pixel(v,b,bx,by);
+            if (sa == INT_MIN) ap = 0;
+            if (sb == INT_MIN) bp = 0;
             /* The stage-1 boss chamber is a 320px plane-A drawing. The VDP
              * name table repeats it after 512px; outside the real chamber
              * show the sky on plane B instead of another broken room edge. */
@@ -840,10 +1054,15 @@ static void scanline(const GVDP *v, int line, const uint32_t *native, int nw,
                 for (int k = 0; k < 3; ++k) c[k] = (c[k] * (256u - mix) + fog_rgb[k] * mix) >> 8;
                 out[x] = 0xFF000000u | c[0] << 16 | c[1] << 8 | c[2];
             } else if (distance && s_op) out[x] = palette[0][s_spr_idx[x]];
-            if (tiled && nx >= 0 && nx < nw && !(x & 7)) {
+            if (tiled && tx == wx && nx >= 0 && nx < nw && !(x & 7)) {
                 unsigned expected = plane(v,ba,nx-ha,line+va);
                 ++s_terrain_checks;
                 if (pixel(v,a,wx,wy) != pixel(v,expected,wx,wy)) ++s_terrain_errors;
+            }
+            if (shared_b && tbx == wbx && nx >= 0 && nx < nw && !(x & 7)) {
+                unsigned expected = plane(v,bb,nx-hb,line+vb);
+                ++s_terrain_checks;
+                if (pixel(v,b,wbx,wby) != pixel(v,expected,wbx,wby)) ++s_terrain_errors;
             }
         }
         if (pass == 0 && samples) {
@@ -860,8 +1079,20 @@ static void scanline(const GVDP *v, int line, const uint32_t *native, int nw,
      * parallax, so the reconstruction stands there. */
     int window_y=(v->reg[18]&31)*8;
     int window_line=(v->reg[18]&128) ? line>=window_y : line<window_y;
-    if (!window_line && (origin == center || fog))
-        memcpy(out+origin,native,(size_t)nw*sizeof *out);
+    if (!window_line && (origin == center || fog)) {
+        /* Native columns outside the room's own blocks show a sliver of the
+         * neighbouring area (a bridge tower post at X=0); those keep the
+         * room continuation drawn above, like the margins. */
+        int from = 0, to = nw, first, last;
+        if (tiled) {
+            room_blocks(s_room_lo, s_room_hi, &first, &last);
+            if (last - first >= 32) {
+                if (first - s_camera > from) from = first - s_camera;
+                if (last - s_camera < to) to = last - s_camera;
+            }
+        }
+        if (to > from) memcpy(out+origin+from,native+from,(size_t)(to-from)*sizeof *out);
+    }
     /* The native window is a screen-space HUD, never a repeated world map. */
     if (window_line) {
         int start=(width-nw)/2;
@@ -878,9 +1109,49 @@ void rka_video_command(int id, const char *json)
     snprintf(out,sizeof out,"{\"id\":%d,\"enabled\":%d,\"scene\":\"%s\",\"room\":[%u,%u],"
         "\"wide_lines\":%u,\"native_lines\":%u,\"edge_shifts\":%u,\"width\":%d,\"view_left\":%d,"
         "\"camera\":%d,\"native_x\":%d,\"bg_x_128\":%d,\"frames\":%u,\"terrain_checks\":%u,"
-        "\"terrain_errors\":%u,\"sprites\":%u,\"spawn_mode\":\"%s\",\"spawned\":%u,\"sprite_overflow\":%u,\"published\":%u,\"displayed\":%u}",
-        id,enabled(),kinds[s_kind<3?s_kind:0],s_room_lo,s_room_hi,s_lines_wide,s_lines_native,s_edge_shifts,s_width,s_left,s_camera,s_origin,s_bg_x,s_frames,s_terrain_checks,s_terrain_errors,
+        "\"terrain_errors\":%u,\"wave_hits\":%u,\"wave_misses\":%u,\"sprites\":%u,\"spawn_mode\":\"%s\",\"spawned\":%u,\"sprite_overflow\":%u,\"published\":%u,\"displayed\":%u}",
+        id,enabled(),kinds[s_kind<3?s_kind:0],s_room_lo,s_room_hi,s_lines_wide,s_lines_native,s_edge_shifts,s_width,s_left,s_camera,s_origin,s_bg_x,s_frames,s_terrain_checks,s_terrain_errors,s_wave_hits,s_wave_misses,
         s_scene?s_scene->count:0,rka_video_spawn_mode(),s_spawned,s_sprite_overflow,s_serial,s_scene?s_scene->serial:0);
+    cmd_send_response(out);
+}
+void rka_video_sprites_command(int id, const char *json)
+{
+    /* The presented actor snapshot: world (or screen) coordinates as drawn. */
+    (void)json;
+    static char out[MAX_SPRITES * 110 + 256];
+    const Scene *sc = s_scene;
+    int n = snprintf(out, sizeof out, "{\"id\":%d,\"serial\":%u,\"camera\":[%d,%d],\"sprites\":[",
+                     id, sc ? sc->serial : 0, sc ? sc->camera_x : 0, sc ? sc->camera_y : 0);
+    for (unsigned i = 0; sc && i < sc->count && n < (int)sizeof out - 160; ++i) {
+        const Sprite *p = &sc->sprites[i];
+        n += snprintf(out + n, sizeof out - (size_t)n,
+            "%s{\"x\":%d,\"y\":%d,\"attr\":%u,\"size\":%u,\"screen\":%u,\"front\":%u,\"object\":\"%04X\",\"type\":%u}",
+            i ? "," : "", p->x, p->y, p->attr, p->size, p->screen, p->front, p->object, p->type);
+    }
+    snprintf(out + n, sizeof out - (size_t)n, "]}");
+    cmd_send_response(out);
+}
+void rka_video_history_command(int id, const char *json)
+{
+    /* {"since":N} returns up to 128 frame records with index >= N. */
+    unsigned since = 0;
+    const char *at = json ? strstr(json, "\"since\"") : NULL;
+    if (at && (at = strchr(at, ':'))) since = (unsigned)strtoul(at + 1, NULL, 10);
+    unsigned oldest = s_frame_ring_count > FRAME_RING ? s_frame_ring_count - FRAME_RING : 0;
+    if (since < oldest) since = oldest;
+    static char out[128 * 400 + 128];
+    int n = snprintf(out, sizeof out, "{\"id\":%d,\"count\":%u,\"frames\":[", id, s_frame_ring_count);
+    for (unsigned i = since, k = 0; i < s_frame_ring_count && k < 128; ++i, ++k) {
+        const FrameRecord *f = &s_frame_ring[i % FRAME_RING];
+        n += snprintf(out + n, sizeof out - (size_t)n,
+            "%s{\"i\":%u,\"frame\":%u,\"serial\":%u,\"stage\":%u,\"map\":%u,\"kind\":%u,\"width\":%u,"
+            "\"camera\":%d,\"native_camera\":%d,\"actor_camera\":%d,\"view_left\":%d,\"origin\":%d,"
+            "\"room\":[%d,%d],\"wrap\":[%u,%u],\"sparse\":[%u,%u],\"copied\":%u,\"native_lines\":%u,\"sprites\":%u}",
+            k ? "," : "", i, f->frame, f->serial, f->stage, f->map, f->kind, f->width, f->camera,
+            f->native_camera, f->actor_camera, f->view_left, f->origin, f->room_lo, f->room_hi,
+            f->wrap_a, f->wrap_b, f->sparse_a, f->sparse_b, f->copied, f->native_lines, f->sprites);
+    }
+    snprintf(out + n, sizeof out - (size_t)n, "]}");
     cmd_send_response(out);
 }
 const GameVideo rka_video = { configure, enabled, width, scanline };
