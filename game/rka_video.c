@@ -70,6 +70,8 @@ static int scene_kind(const uint8_t *r)
 {
     unsigned mode = r16(r, 0xB002), map = r16(r, 0xB1D0);
     if ((mode != 4 && mode != 7) || !r32(r, 0xB1F6)) return SCENE_NONE;
+    if ((map == 9 && r16(r, 0xFB12) == 2) ||
+        (map == 3 && r16(r, 0xFB12) == 21)) return SCENE_PLANAR;
     if (map >= 2 && map <= 8) return r32(r, 0xB1FA) ? SCENE_TILED : SCENE_NONE;
     /* Stage 1's boss keeps the preceding room's layout metadata while its
      * chamber and boss are drawn into the live name table. Decoding that
@@ -833,6 +835,34 @@ static int native_wrap(int nx, int nw)
     int n = ((nx % (2 * nw)) + 2 * nw) % (2 * nw);
     return n < nw ? n : 2 * nw - 1 - n;
 }
+/* The cannon cutscene's right-hand ground is plane art, so continue its
+ * nearest edge tiles without repeating a flying actor at the screen edge. */
+static int edge_plane_x(unsigned stage, unsigned map, int plane, int nx, int nw)
+{
+    if (plane == 0 && stage == 45 && map == 1 && nx >= nw)
+        return nw - 1 - (nx - nw) % 32;
+    return nx;
+}
+/* Large stage-set pieces are composed by the VDP itself, outside the normal
+ * actor mapping capture. The live native edge contains their final pixels;
+ * repeating a short edge strip carries the solid construction into a wide
+ * margin without repeating an entire room or moving the set piece. */
+static int native_edge_x(unsigned stage, unsigned map, unsigned mode,
+                         unsigned camera_x, unsigned camera_y, int nx, int nw)
+{
+    int left = 0, right = 0, strip = 32;
+    if (stage == 2 && map == 9) right = 1;
+    if (stage == 4 && map == 4) left = 1;
+    if (stage == 43 && map == 4) left = right = 1;
+    if (stage == 45 && map == 1) left = 1;
+    if (stage == 23 && map == 1 && mode == 4 &&
+        camera_x == 0 && camera_y == 256) right = 1;
+    if (stage == 21 && (map == 3 || map == 1)) { right = 1; strip = 8; }
+    if (stage == 32 && map == 4) { left = 1; strip = 8; }
+    if (left && nx < 0) return (-nx - 1) % strip;
+    if (right && nx >= nw) return nw - 1 - (nx - nw) % strip;
+    return INT_MIN;
+}
 static void scanline(const GVDP *v, int line, const uint32_t *native, int nw,
                      uint32_t *out, int width)
 {
@@ -994,7 +1024,9 @@ static void scanline(const GVDP *v, int line, const uint32_t *native, int nw,
             }
             int wy = unwrap(va,r16(r,0xB1D6)) + line;
             int inside = nx >= 0 && nx < nw;
-            int bx = (wrap_b && !inside ? native_wrap(nx,nw) + origin : x) - center - bg_h;
+            int exa = edge_plane_x(stage,map,0,nx,nw);
+            int exb = edge_plane_x(stage,map,1,nx,nw);
+            int bx = (exb != nx ? exb + origin : wrap_b && !inside ? native_wrap(nx,nw) + origin : x) - center - bg_h;
             int by = line + vb;
             int bridge = tiled && stage == 2 && map == 9 && s_room_hi - s_room_lo == 320;
             int tx = !tiled ? 0 : bridge ? bridge_x(wx,s_room_lo,s_room_hi)
@@ -1007,14 +1039,14 @@ static void scanline(const GVDP *v, int line, const uint32_t *native, int nw,
             int wby = top + ((vb + line - top) % ph + ph) % ph;
             int tbx = !shared_b ? 0 : bridge ? bridge_x(wbx,s_room_lo,s_room_hi)
                                              : room_x(wbx,s_room_lo,s_room_hi);
-            int pax = (wrap_a && !inside ? native_wrap(nx,nw) : nx) - ha;
-            int sa = tiled || wrap_a ? pax : sparse_x(0,pax,ha,nw);
-            int sb = wrap_b || shared_b ? bx : sparse_x(1,bx,bg_h,nw);
+            int pax = (exa != nx ? exa : wrap_a && !inside ? native_wrap(nx,nw) : nx) - ha;
+            int sa = tiled || wrap_a || exa != nx ? pax : sparse_x(0,pax,ha,nw);
+            int sb = wrap_b || shared_b || exb != nx ? bx : sparse_x(1,bx,bg_h,nw);
             if (sa != INT_MIN) pax = sa;
             if (sb != INT_MIN) bx = sb;
-            unsigned a = tiled ? terrain(r,tx,wy) : plane(v,ba,pax,line+va);
+            unsigned a = tiled && exa == nx ? terrain(r,tx,wy) : plane(v,ba,pax,line+va);
             unsigned b = shared_b ? terrain(r,tbx,wby) : plane(v,bb,bx,by);
-            unsigned ap = tiled ? pixel(v,a,tx,wy) : pixel(v,a,pax,line+va);
+            unsigned ap = tiled && exa == nx ? pixel(v,a,tx,wy) : pixel(v,a,pax,line+va);
             unsigned bp = shared_b ? pixel(v,b,tbx,wby) : pixel(v,b,bx,by);
             if (sa == INT_MIN) ap = 0;
             if (sb == INT_MIN) bp = 0;
@@ -1071,6 +1103,11 @@ static void scanline(const GVDP *v, int line, const uint32_t *native, int nw,
                 fog_rgb[k] = line <= 32 ? avg : (fog_rgb[k] * 23u + avg) / 24u;
             }
         }
+    }
+    for (int x = 0; x < width; ++x) {
+        int source = native_edge_x(stage,map,r16(r,0xB002),
+                                   r16(r,0xB1D2),r16(r,0xB1D6),x-origin,nw);
+        if (source != INT_MIN) out[x] = native[source];
     }
     /* Preserve the hardware-rendered original viewport exactly. Raster
      * effects, special boss sprites and streamed tile changes can differ

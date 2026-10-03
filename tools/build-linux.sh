@@ -2,11 +2,11 @@
 # RKA adaptation of SuperMarioWorldRecomp/tools/build-linux.sh.
 # Prerequisites: cmake, make, g++, pkg-config, libsdl2-dev, libgl1-mesa-dev,
 # curl, python3, patchelf, ImageMagick. Place the USA ROM at game/rka.bin.
-# Usage: bash tools/build-linux.sh --version 0.1.9 --jobs 8 [--no-package]
+# Usage: bash tools/build-linux.sh --version 0.1.10 --jobs 8 [--no-package]
 # Release builds always disable tracing and reverse-debug instrumentation.
 set -euo pipefail
 REPO=$(cd "$(dirname "$0")/.." && pwd)
-VERSION=0.1.9
+VERSION=0.1.10
 JOBS=8
 OUT="$REPO/release-linux"
 BUILD="$REPO/build-linux-prod"

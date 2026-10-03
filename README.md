@@ -12,7 +12,7 @@ no community disassembly, so function discovery is heuristic instead of
 disasm-seeded. That makes RKA the proving ground for the engine's
 resilience layer (see below).
 
-## Status (v0.1.9)
+## Status (v0.1.10)
 
 - Boots, full attract/title flow, opening cinematic.
 - Stage 1 playable end to end: correct background parallax and
@@ -45,6 +45,8 @@ crash.
   may die in the demo). Timing-fidelity item, tracked engine-side.
 - Raster-effect scenes (per-line vertical scroll) execute their
   self-modifying RAM handlers on the interpreter by design.
+- The castle-corridor fire emitter reported in playtest save 3 needs a close
+  visual recheck; the supplied native save also emits blasts from offscreen.
 
 ## Layout
 
@@ -80,16 +82,16 @@ complete DLL import closure. Linux packages use pinned, hash-checked AppImage
 tools and test writable state paths. See [release instructions](RELEASING.md).
 
 ```powershell
-./tools/build-windows.ps1 -Version 0.1.9
+./tools/build-windows.ps1 -Version 0.1.10
 ```
 
 ```sh
-bash tools/build-linux.sh --version 0.1.9 --jobs 8
+bash tools/build-linux.sh --version 0.1.10 --jobs 8
 ```
 
-Windows output: `release-stage/*-windows-x64-v0.1.9.zip`.
-Linux output: `release-linux/*-linux-x86_64-v0.1.9.AppImage`.
-Both include SHA-256 checksum files. Linux v0.1.9 is built on Ubuntu 24.04;
+Windows output: `release-stage/*-windows-x64-v0.1.10.zip`.
+Linux output: `release-linux/*-linux-x86_64-v0.1.10.AppImage`.
+Both include SHA-256 checksum files. Linux v0.1.10 is built on Ubuntu 24.04;
 older distributions and Steam Deck have not been validated.
 
 ## Running
@@ -147,6 +149,14 @@ with the custom renderer is still needed.
 | A (attack / rocket charge) | Z | B / Circle |
 | C (attack / rocket charge) | C | X / Square |
 | Start   | Enter    | Start / Options        |
+
+F7 opens the visual nine-slot save-state browser; F8 opens rewind after a few
+seconds of play. Use arrows or the D-pad to choose, Enter/A to load or restore,
+S/X to save in the browser, and Esc/B to cancel. On a controller, Back/View +
+RB opens the browser and Back/View + right-stick click opens rewind. Rewind
+depth and interval can be changed in the launcher. Shift+F1–F9 remains the
+direct save shortcut; F1–F6/F9 directly load, while Ctrl+F7/F8 load slots
+7/8. Existing `native_save_N.bin` files work in the browser.
 
 ## License
 
