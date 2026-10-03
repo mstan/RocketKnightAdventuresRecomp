@@ -84,6 +84,7 @@ const GameSpec g_game_spec = {
     .call_periodic          = NULL,
 
     .on_post_reset          = rka_video_reset,
+    .on_state_loaded        = rka_video_reset,
     .on_frame_pre           = NULL,
     .on_frame_post          = NULL,
     .on_hblank              = NULL,
