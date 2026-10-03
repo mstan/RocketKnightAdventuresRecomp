@@ -67,7 +67,9 @@ with (out / "process.log").open("w", encoding="utf-8") as log:
                     return json.loads(sock.makefile("rb").readline())
             if process.poll() is None:
                 data={cmd:query(cmd) for cmd in ("custom_video","vdp_state","dispatch_miss_info",
-                                                  "custom_video_history","custom_video_sprites")}
+                                                  "custom_video_sprites")}
+                data["custom_video_history"]=query(
+                    "custom_video_history", since=max(0,data["custom_video"]["frames"]-64))
                 (out / "diagnostics.json").write_text(json.dumps(data,indent=2),encoding="utf-8")
                 if a.resize_check:
                     sizes=[]

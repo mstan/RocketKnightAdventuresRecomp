@@ -70,7 +70,10 @@ static int scene_kind(const uint8_t *r)
 {
     unsigned mode = r16(r, 0xB002), map = r16(r, 0xB1D0);
     if ((mode != 4 && mode != 7) || !r32(r, 0xB1F6)) return SCENE_NONE;
-    if ((map == 9 && r16(r, 0xFB12) == 2) ||
+    /* The earlier water tower is painted into the live plane. The tank
+     * encounter at the stage's final camera still has a valid tiled bridge. */
+    if ((map == 9 && r16(r, 0xFB12) == 2 &&
+         r16(r, 0xB1D2) != r16(r, 0xB1E8)) ||
         (map == 3 && r16(r, 0xFB12) == 21)) return SCENE_PLANAR;
     if (map >= 2 && map <= 8) return r32(r, 0xB1FA) ? SCENE_TILED : SCENE_NONE;
     /* Stage 1's boss keeps the preceding room's layout metadata while its
@@ -851,7 +854,10 @@ static int native_edge_x(unsigned stage, unsigned map, unsigned mode,
                          unsigned camera_x, unsigned camera_y, int nx, int nw)
 {
     int left = 0, right = 0, strip = 32;
-    if (stage == 2 && map == 9) right = 1;
+    /* The earlier water tower needs its solid right edge carried outward.
+     * At the final tank arena, that edge contains the moving boss and bridge;
+     * its tile layout supplies the margins without reflecting either one. */
+    if (stage == 2 && map == 9 && camera_x != r16(g_ram, 0xB1E8)) right = 1;
     if (stage == 4 && map == 4) left = 1;
     if (stage == 43 && map == 4) left = right = 1;
     if (stage == 45 && map == 1) left = 1;
