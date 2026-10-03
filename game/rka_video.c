@@ -399,6 +399,11 @@ static void spawn_visible(void)
     room_span(g_ram,camera,&lo,&hi);
     int left = (view > lo ? view : lo) - 32;
     int right = (view+s_requested_width < hi ? view+s_requested_width : hi) + 32;
+    /* The fire corridor's heat controller sits behind the native camera.
+     * Waking it from the new left margin distorts the room before its
+     * intended trigger. Keep rightward placement scanning expanded. */
+    if (r16(g_ram,0xFB12) == 3 && r16(g_ram,0xB1D0) == 5)
+        left = camera - 32;
     if (left > camera-32) left = camera-32;
     if (right < camera+352) right = camera+352;
     if (left < 0) left=0;
@@ -629,6 +634,10 @@ int rka_video_hook(uint32_t pc)
      * edge. Cadence, object pool, motion and despawn stay native. */
     const EdgeSpawn *edge = edge_spawn(pc);
     if (edge) {
+        /* The fire corridor's launcher writes several interdependent X
+         * positions. Shifting only the creation sites desynchronizes its
+         * wave/ember drawing, so retain native placement in this room. */
+        if (r16(g_ram,0xFB12) == 3 && map == 5) return 0;
         int kind = scene_kind(g_ram);
         if (edge->camera ? kind != SCENE_TILED : map != 1) return 0;
         unsigned slot = g_cpu.A[2] & 65535u;
@@ -844,27 +853,36 @@ static int edge_plane_x(unsigned stage, unsigned map, int plane, int nx, int nw)
 {
     if (plane == 0 && stage == 45 && map == 1 && nx >= nw)
         return nw - 1 - (nx - nw) % 32;
+    /* These rooms end in solid masonry. Continue the plane's wall tiles,
+     * never the composited native edge, which may include the player. */
+    if (plane == 0 && stage == 11 && map == 9 && (nx < 0 || nx >= nw))
+        return nx < 0 ? (-nx - 1) % 8 : nw - 1 - (nx - nw) % 8;
     return nx;
 }
 /* Large stage-set pieces are composed by the VDP itself, outside the normal
  * actor mapping capture. The live native edge contains their final pixels;
  * repeating a short edge strip carries the solid construction into a wide
  * margin without repeating an entire room or moving the set piece. */
-static int native_edge_x(unsigned stage, unsigned map, unsigned mode,
-                         unsigned camera_x, unsigned camera_y, int nx, int nw)
+static int native_edge_x(unsigned stage, unsigned map,
+                         unsigned camera_x, int nx, int nw)
 {
     int left = 0, right = 0, strip = 32;
     /* The earlier water tower needs its solid right edge carried outward.
      * At the final tank arena, that edge contains the moving boss and bridge;
      * its tile layout supplies the margins without reflecting either one. */
     if (stage == 2 && map == 9 && camera_x != r16(g_ram, 0xB1E8)) right = 1;
-    if (stage == 4 && map == 4) left = 1;
-    if (stage == 43 && map == 4) left = right = 1;
-    if (stage == 45 && map == 1) left = 1;
-    if (stage == 23 && map == 1 && mode == 4 &&
-        camera_x == 0 && camera_y == 256) right = 1;
-    if (stage == 21 && (map == 3 || map == 1)) { right = 1; strip = 8; }
-    if (stage == 32 && map == 4) { left = 1; strip = 8; }
+    if (stage == 21 && (map == 3 || map == 1)) {
+        /* The boss ends at the native border. One reflection completes its
+         * silhouette; repeating a short strip duplicates its machinery. */
+        if (nx >= nw && nx < nw + 64) return nw - 1 - (nx - nw);
+    }
+    if (stage == 32 && map == 4 && nx < 0) {
+        /* This wall is fixed at world X=3400. Sampling that wall rather than
+         * the viewport edge avoids reflecting Rocket or the boss projectiles
+         * when they cross the left border. */
+        int sx = 3400 - (int)camera_x + (-nx - 1) % 8;
+        if (sx >= 0 && sx < nw) return sx;
+    }
     if (left && nx < 0) return (-nx - 1) % strip;
     if (right && nx >= nw) return nw - 1 - (nx - nw) % strip;
     return INT_MIN;
@@ -1056,10 +1074,6 @@ static void scanline(const GVDP *v, int line, const uint32_t *native, int nw,
             unsigned bp = shared_b ? pixel(v,b,tbx,wby) : pixel(v,b,bx,by);
             if (sa == INT_MIN) ap = 0;
             if (sb == INT_MIN) bp = 0;
-            /* The stage-1 boss chamber is a 320px plane-A drawing. The VDP
-             * name table repeats it after 512px; outside the real chamber
-             * show the sky on plane B instead of another broken room edge. */
-            if (stage == 11 && map == 9 && !inside) ap = 0;
             int a_hi = ap && (a & 0x8000), b_hi = bp && (b & 0x8000);
             if (pass == 0) {
                 if (x >= sample_lo && x < sample_hi) {
@@ -1111,8 +1125,7 @@ static void scanline(const GVDP *v, int line, const uint32_t *native, int nw,
         }
     }
     for (int x = 0; x < width; ++x) {
-        int source = native_edge_x(stage,map,r16(r,0xB002),
-                                   r16(r,0xB1D2),r16(r,0xB1D6),x-origin,nw);
+        int source = native_edge_x(stage,map,r16(r,0xB1D2),x-origin,nw);
         if (source != INT_MIN) out[x] = native[source];
     }
     /* Preserve the hardware-rendered original viewport exactly. Raster

@@ -68,8 +68,12 @@ with (out / "process.log").open("w", encoding="utf-8") as log:
             if process.poll() is None:
                 data={cmd:query(cmd) for cmd in ("custom_video","vdp_state","dispatch_miss_info",
                                                   "custom_video_sprites")}
+                # Savestate loading resets the current scene's frame counter,
+                # while the diagnostic history keeps its process-wide count.
+                # Query that count before requesting the most recent frames.
+                history=query("custom_video_history")
                 data["custom_video_history"]=query(
-                    "custom_video_history", since=max(0,data["custom_video"]["frames"]-64))
+                    "custom_video_history", since=max(0,history["count"]-64))
                 (out / "diagnostics.json").write_text(json.dumps(data,indent=2),encoding="utf-8")
                 if a.resize_check:
                     sizes=[]
