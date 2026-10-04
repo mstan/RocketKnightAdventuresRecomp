@@ -399,11 +399,14 @@ static void spawn_visible(void)
     room_span(g_ram,camera,&lo,&hi);
     int left = (view > lo ? view : lo) - 32;
     int right = (view+s_requested_width < hi ? view+s_requested_width : hi) + 32;
-    /* The fire corridor's heat controller sits behind the native camera.
-     * Waking it from the new left margin distorts the room before its
-     * intended trigger. Keep rightward placement scanning expanded. */
-    if (r16(g_ram,0xFB12) == 3 && r16(g_ram,0xB1D0) == 5)
+    /* The fire corridor's linked heat controller sits just beyond the
+     * native right edge in the supplied save. Waking it from either added
+     * margin starts its launcher early and leaves a stack of fire sprites
+     * in the native view. Keep this one room on its original spawn cadence. */
+    if (r16(g_ram,0xFB12) == 3 && r16(g_ram,0xB1D0) == 5) {
         left = camera - 32;
+        right = camera + 352;
+    }
     if (left > camera-32) left = camera-32;
     if (right < camera+352) right = camera+352;
     if (left < 0) left=0;
@@ -871,17 +874,14 @@ static int native_edge_x(unsigned stage, unsigned map,
      * At the final tank arena, that edge contains the moving boss and bridge;
      * its tile layout supplies the margins without reflecting either one. */
     if (stage == 2 && map == 9 && camera_x != r16(g_ram, 0xB1E8)) right = 1;
-    if (stage == 21 && (map == 3 || map == 1)) {
-        /* The boss ends at the native border. One reflection completes its
-         * silhouette; repeating a short strip duplicates its machinery. */
-        if (nx >= nw && nx < nw + 64) return nw - 1 - (nx - nw);
-    }
     if (stage == 32 && map == 4 && nx < 0) {
         /* This wall is fixed at world X=3400. Sampling that wall rather than
          * the viewport edge avoids reflecting Rocket or the boss projectiles
-         * when they cross the left border. */
+         * when they cross the left border. Only extend it while it is still
+         * at the viewport edge; once the camera passes it, the wall belongs
+         * in the room rather than across the entire left margin. */
         int sx = 3400 - (int)camera_x + (-nx - 1) % 8;
-        if (sx >= 0 && sx < nw) return sx;
+        if (sx >= nw - 40 && sx < nw) return sx;
     }
     if (left && nx < 0) return (-nx - 1) % strip;
     if (right && nx >= nw) return nw - 1 - (nx - nw) % strip;
@@ -972,6 +972,9 @@ static void scanline(const GVDP *v, int line, const uint32_t *native, int nw,
     s_origin = origin;
     int wrap_a = !tiled && unauthored(v,0,ha,nw);
     int wrap_b = !shared_b && unauthored(v,1,bg_h + center - origin,nw);
+    /* The lava arena reuses its cave backdrop across the horizontal shake.
+     * Its plane B name table is sparse outside the native viewport. */
+    if (stage == 43 && map == 4) wrap_b = 1;
     if (record && line == 128) {
         record->camera = camera; record->view_left = s_left; record->origin = origin;
         record->room_lo = s_room_lo; record->room_hi = s_room_hi;
@@ -1128,6 +1131,13 @@ static void scanline(const GVDP *v, int line, const uint32_t *native, int nw,
         int source = native_edge_x(stage,map,r16(r,0xB1D2),x-origin,nw);
         if (source != INT_MIN) out[x] = native[source];
     }
+    /* The lava arena's long platform is a 32-pixel repeating strip. The
+     * right-hand strip is always visible and does not contain the player,
+     * so it can complete the platform across the left wide margin. */
+    if (stage == 43 && map == 4 && nw >= 320 && line >= 172 && line < 184) {
+        for (int x = 0; x < origin && x < width; ++x)
+            out[x] = native[288 + ((x - origin) & 31)];
+    }
     /* Preserve the hardware-rendered original viewport exactly. Raster
      * effects, special boss sprites and streamed tile changes can differ
      * from our reconstruction; only the added side pixels need rebuilding.
@@ -1135,12 +1145,20 @@ static void scanline(const GVDP *v, int line, const uint32_t *native, int nw,
      * parallax, so the reconstruction stands there. */
     int window_y=(v->reg[18]&31)*8;
     int window_line=(v->reg[18]&128) ? line>=window_y : line<window_y;
-    if (!window_line && (origin == center || fog)) {
+    /* The lava room shakes the horizontal scroll by one pixel. Preserve the
+     * native raster on both positions so its platform does not alternate
+     * between native pixels and a sparse tile reconstruction. The aircraft
+     * room clamps its camera; its transient right-edge dot field is likewise
+     * a reconstruction artifact within the still-authored native viewport. */
+    int preserve_native = origin == center || fog ||
+        (stage == 43 && map == 4 && abs(origin - center) <= 1) ||
+        (stage == 48 && map == 4);
+    if (!window_line && preserve_native) {
         /* Native columns outside the room's own blocks show a sliver of the
          * neighbouring area (a bridge tower post at X=0); those keep the
          * room continuation drawn above, like the margins. */
         int from = 0, to = nw, first, last;
-        if (tiled) {
+        if (tiled && !(stage == 43 && map == 4)) {
             room_blocks(s_room_lo, s_room_hi, &first, &last);
             if (last - first >= 32) {
                 if (first - s_camera > from) from = first - s_camera;

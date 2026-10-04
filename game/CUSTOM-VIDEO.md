@@ -153,10 +153,12 @@ where the same classification applies. Those sites hook the call's return
 address, where A2 still holds the new slot. This found the fire corridor's
 embers (type `$55`, D0 = camera+`$140`, `$030276`/`$0303DC`).
 
-The stage-1 fire corridor places its launcher and fire source at native X=304,
-just inside that audit band. Four additional ROM-verified X-store hooks shift
-the linked launcher parts together to the wider right edge; their child fire
-objects inherit the shifted source position.
+The stage-1 fire corridor places a linked heat controller and launcher near
+the native right edge. The widened placement scan can wake the controller
+before the original game would, leaving fire objects in the native viewport.
+This room therefore uses the native placement range and keeps its linked
+launcher and ember X-store hooks at their original positions. The other
+rooms retain expanded placement and edge spawning.
 
 The original cell loaders, allocator, fixed slots, remembered placement bits
 and respawn routines still own the objects. The native object pool remains

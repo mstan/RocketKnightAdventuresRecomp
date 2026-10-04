@@ -12,7 +12,7 @@ no community disassembly, so function discovery is heuristic instead of
 disasm-seeded. That makes RKA the proving ground for the engine's
 resilience layer (see below).
 
-## Status (v0.1.11)
+## Status (v0.1.12)
 
 - Boots, full attract/title flow, opening cinematic.
 - Stage 1 playable end to end: correct background parallax and
@@ -45,10 +45,12 @@ crash.
   may die in the demo). Timing-fidelity item, tracked engine-side.
 - Raster-effect scenes (per-line vertical scroll) execute their
   self-modifying RAM handlers on the interpreter by design.
-- The castle-corridor fire emitter needs a full fight playtest. The widened
-  room no longer activates its heat effect early or shifts its launcher pieces.
-- A brief right-margin streak remains in the stage shooter transition (Part 1
-  save 8 of the latest feedback).
+- The castle-corridor fire emitter needs a fresh-run playtest. Its linked
+  controller now uses the original spawn range; saves captured after the
+  premature activation still contain the already-created fire objects.
+- At the later machine-room wall, the left margin reuses some machinery
+  details. A flying boss can briefly show a thin propeller slice at the
+  extreme screen edge; the Earth transition retains its mirrored edge.
 
 ## Layout
 
@@ -84,16 +86,16 @@ complete DLL import closure. Linux packages use pinned, hash-checked AppImage
 tools and test writable state paths. See [release instructions](RELEASING.md).
 
 ```powershell
-./tools/build-windows.ps1 -Version 0.1.11
+./tools/build-windows.ps1 -Version 0.1.12
 ```
 
 ```sh
-bash tools/build-linux.sh --version 0.1.11 --jobs 8
+bash tools/build-linux.sh --version 0.1.12 --jobs 8
 ```
 
-Windows output: `release-stage/*-windows-x64-v0.1.11.zip`.
-Linux output: `release-linux/*-linux-x86_64-v0.1.11.AppImage`.
-Both include SHA-256 checksum files. Linux v0.1.11 is built on Ubuntu 24.04;
+Windows output: `release-stage/*-windows-x64-v0.1.12.zip`.
+Linux output: `release-linux/*-linux-x86_64-v0.1.12.AppImage`.
+Both include SHA-256 checksum files. Linux v0.1.12 is built on Ubuntu 24.04;
 older distributions and Steam Deck have not been validated.
 
 ## Running
