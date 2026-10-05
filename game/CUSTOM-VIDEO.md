@@ -78,11 +78,21 @@ in the middle. Beyond a room the layout holds unrelated areas (the previous
 corridor, a castle exterior beside an interior); there the renderer repeats
 the room's outermost 32-pixel block column of terrain. Camera limits are one
 pixel short (`$B39E` and `$B1E8` are last camera X values: a 4096-pixel map
-stops at 3775), so a room's own blocks are those mostly inside its span; a
-native column outside them (a bridge-tower sliver at X=0) is drawn as room
-continuation too. Plane B keeps its real position. World actors whose pieces
-lie wholly beyond a locked room's blocks (water-surface pieces past a boss
-room) are not drawn over the continued wall.
+stops at 3775), so margins continue the blocks mostly inside its span. What
+the native view shows of the room is wider: every block at least half inside
+(the lava arena and the machine room start exactly 16 pixels into a block,
+and that half and its actors are on screen). A native column outside those
+(a bridge-tower sliver at X=0) is drawn as room continuation too. Plane B
+keeps its real position. World actors whose pieces lie wholly beyond them
+(water-surface pieces past a boss room) are not drawn over the continued wall.
+
+The room and the view placement follow the game camera `$B1D2`, not the
+H-scroll table. H-scroll adds raster effects on top: screen shake, and the
+lava arena's per-line heat ripple (-1..+2 pixels on plane A). Every line
+samples its own raster X, so the margins ripple and shake with the native
+picture, while the room edge and the centered native image stay put.
+Anchoring on line 0's raster X let the ripple move the room edge into the
+neighbouring block column on some frames, which flashed the margin.
 
 A planar plane whose unseen name-table columns hold no artwork (solid fills
 such as the ending's full-width letterbox bars and up to three stray cells do

@@ -70,10 +70,9 @@ def parity(native, wide):
     for ext in ("ram", "vram"):
         assert (native / f"scene.{ext}").read_bytes() == (wide / f"scene.{ext}").read_bytes(), ext
     ram = (native / "scene.ram").read_bytes()
-    vram = (native / "scene.vram").read_bytes()
     word = lambda data, offset: int.from_bytes(data[offset:offset + 2], "big")
+    # Tiled views anchor on the game camera; raster shake/ripple stays per line.
     camera = word(ram, 0xB1D2)
-    camera += (-word(vram, 0xAC00) - camera + 512) % 1024 - 512
     ni = Image.open(native / "scene.png").convert("RGB")
     wi = Image.open(wide / "scene.png").convert("RGB")
     center = (wi.width - ni.width) // 2

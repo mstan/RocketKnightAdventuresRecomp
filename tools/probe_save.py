@@ -67,9 +67,13 @@ try:
             return json.loads(s.makefile('rb').readline())
     result = {name: query(name) for name in ['custom_video', 'vdp_state'] + a.query}
     if a.spawns:
-        spawns, since = [], 0
-        while True:
-            page = query('rka_spawns', since=since)['spawns']
+        # The game keeps running while we page; stop at the count seen first,
+        # or a scene spawning every frame outruns the reader forever.
+        spawns, since, end = [], 0, None
+        while end is None or since < end:
+            reply = query('rka_spawns', since=since)
+            end = reply['count'] if end is None else end
+            page = [e for e in reply['spawns'] if e['serial'] < end]
             if not page:
                 break
             spawns += page

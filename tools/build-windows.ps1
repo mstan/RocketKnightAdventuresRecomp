@@ -1,5 +1,5 @@
 param(
-  [string]$Version = '0.1.12',
+  [string]$Version = '0.1.13',
   [string]$BuildDir = 'build-release',
   [string]$CMake = 'C:\Program Files\CMake\bin\cmake.exe',
   [string]$Python = 'python',

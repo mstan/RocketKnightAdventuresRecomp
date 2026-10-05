@@ -24,10 +24,14 @@ output_prefix = "rka"
 jump_table_autodiscovery = true
 # Executed-PC oracle: the 12000-frame attract run plus every area index booted
 # by tools/coverage_sweep.py (force-interp and native floor PCs) and the owner
-# saves. Merged by tools/fold_floor_coverage.py --oracle-out.
+# saves. Frozen at v0.1.12: growing it promotes newly executed JSR targets that
+# truncate their parent function (beads-3vb.19). Later evidence goes to
+# rka_fold_oracle.txt, used only to validate floor folds.
 runtime_exec_file = "rka_executed_pcs_sweep.txt"
-# Interpreter-floor call/jump targets from the same sweeps, each validated
-# against that oracle and a clean decode (tools/fold_floor_coverage.py).
+# Interpreter-floor call/jump targets from the same sweeps and owner saves, each
+# validated against rka_fold_oracle.txt and a clean decode, never inside an
+# existing function (tools/fold_floor_coverage.py). Every regen is gated by
+# tools/compare_native_coverage.py: no previously native instruction may be lost.
 discovery_files = ["rka_floor_sweep.discovery.toml", "rka_stage1_newrun.discovery.toml"]
 
 # Runtime executed-PC coverage is an additive evidence gate, never a direct
