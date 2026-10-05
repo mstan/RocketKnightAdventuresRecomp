@@ -14,8 +14,15 @@ A floor target is accepted only when all of these hold:
 
 Accepted targets become [functions] late_extra roots (non-recursive, so they
 cannot reopen heuristic discovery). Targets inside an existing generated
-function are kept, flagged, because the recompiler splits at them.
---oracle-out also writes the merged executed-PC oracle for runtime_exec_file.
+function's address span are rejected: the floor records every jump in a
+missed routine's subtree, including a parent's own jump-table labels, and the
+recompiler ends a function at the next function start, so seeding one (even
+in an undecoded gap) truncates the parent and orphans its in-function
+dispatch (area 21's boss, $02A754).
+--oracle-out writes the merged executed-PC oracle (game/rka_fold_oracle.txt). Keep it
+out of runtime_exec_file: promoting newly executed JSR targets truncates
+parents the same way (beads-3vb.19). Gate every regen with
+tools/compare_native_coverage.py.
 """
 import argparse
 import glob
@@ -44,11 +51,22 @@ def files(patterns):
     return out
 
 
-gen, starts = set(), set()
+gen, starts, spans = set(), set(), []
 for f in a.generated.glob('*_part*.c'):
     text = f.read_text()
     gen.update(int(m, 16) for m in re.findall(r'/\* \$([0-9A-F]{6}) \*/', text))
     starts.update(int(m, 16) for m in re.findall(r'^void func_([0-9A-F]{6})\(void\)', text, re.M))
+    # Address span of each function's decoded instructions. The recompiler
+    # ends a function at the next function start, so a seed in a gap of a
+    # parent's span (code it never decoded) still truncates that parent.
+    for body in re.split(r'^void func_', text, flags=re.M)[1:]:
+        pcs = [int(m, 16) for m in re.findall(r'/\* \$([0-9A-F]{6}) \*/', body)]
+        if pcs:
+            spans.append((int(body[:6], 16), max(pcs)))
+
+
+def interior(addr):
+    return addr in gen or any(lo < addr <= hi for lo, hi in spans)
 oracle = set()
 oracle_files = files(a.oracle)
 for f in oracle_files:
@@ -96,8 +114,8 @@ if a.keep and a.keep.exists():
 for addr in sorted(floor - kept):
     if addr >= len(rom) or addr in starts:
         continue
-    why = validate(addr)
-    (rejected if why else accepted).append((addr, why or ('interior' if addr in gen else 'new')))
+    why = 'inside an existing function (interior label, never a seed)' if interior(addr) else validate(addr)
+    (rejected if why else accepted).append((addr, why or 'new'))
 
 accepted.sort()
 lines = [
@@ -112,13 +130,13 @@ lines = [
     'late_extra = [',
 ]
 for addr, kind in accepted:
-    lines.append(f'  0x{addr:06X},' + ('  # inside an existing function' if kind == 'interior' else ''))
+    lines.append(f'  0x{addr:06X},')
 lines.append(']')
 a.out.write_text('\n'.join(lines) + '\n')
 for addr, why in rejected:
     print(f'rejected ${addr:06X}: {why}')
-print(f'accepted {len(accepted)} ({sum(k == "interior" for _, k in accepted)} interior), '
-      f'rejected {len(rejected)} -> {a.out}')
+print(f'accepted {len(accepted)}, rejected {len(rejected)} '
+      f'({sum("interior" in w for _, w in rejected)} interior) -> {a.out}')
 if a.oracle_out:
     a.oracle_out.write_text('# executed ROM instruction-start PCs: attract, all-area sweep, and owner-save floor capsules\n' +
                             ''.join(f'{x:06X}\n' for x in sorted(oracle) if x < len(rom)))

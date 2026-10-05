@@ -121,9 +121,15 @@ static int view_left(int camera, int width, const uint8_t *r)
 /* The room's own 32px block columns. Camera limits are pixel-exact and
  * off by one ($B39E is a last camera X), so a room edge can expose one
  * pixel of the neighbouring block or hide one of its own: a block belongs
- * to the room when most of it is inside. */
+ * to the room when most of it is inside. Margins continue those blocks. */
 static void room_blocks(int lo, int hi, int *first, int *last)
 { *first = (lo + 16) & ~31; *last = (hi + 16) & ~31; }
+/* What the native view shows of the room: blocks at least half inside. The
+ * lava arena and machine room start exactly 16px into a block; that half is
+ * on screen natively, with its actors (a platform piece), so it keeps its
+ * native pixels while the margins still continue the next whole block. */
+static void room_cover(int lo, int hi, int *first, int *last)
+{ *first = (lo + 15) & ~31; *last = (hi + 16) & ~31; }
 static int room_x(int wx, int lo, int hi)
 {
     int first, last;
@@ -520,7 +526,8 @@ void rka_spawns_command(int id, const char *json)
     if (since < oldest) since = oldest;
     static char out[256 * 200 + 128];
     int n = snprintf(out, sizeof out, "{\"id\":%d,\"count\":%u,\"spawns\":[", id, s_spawn_count);
-    for (unsigned i = since, k = 0; i < s_spawn_count && k < 256; ++i, ++k) {
+    for (unsigned i = since, k = 0; i < s_spawn_count && k < 256 &&
+         n < (int)sizeof out - 512; ++i, ++k) {
         const Spawn *e = &s_spawns[i % SPAWN_RING];
         n += snprintf(out + n, sizeof out - (size_t)n,
             "%s{\"serial\":%u,\"frame\":%u,\"caller\":\"%06X\",\"writer\":\"%06X\",\"creator\":\"%08X\",\"slot\":\"%04X\",\"type\":%u,"
@@ -943,14 +950,22 @@ static void scanline(const GVDP *v, int line, const uint32_t *native, int nw,
     int camera = unwrap(-ha, r16(r, 0xB1D2));
     int cy = unwrap(v->vsram[0], r16(r, 0xB1D6));
     if (!line) {
-        s_camera = camera; s_left = view_left(camera,width,r);
-        if (kind == SCENE_TILED) room_span(r,camera,&s_room_lo,&s_room_hi);
+        /* A tiled room and its view follow the game camera $B1D2. H-scroll
+         * adds raster effects on top: screen shake and the lava arena's
+         * per-line heat ripple (-1..+2px). Anchoring on line 0's raster X
+         * moved the room edge into the neighbouring block column on some
+         * ripple phases, so the margin flashed between two block columns.
+         * Each line still samples its own raster X below, so the margins
+         * ripple and shake together with the native picture. */
+        s_camera = tiled ? (int)r16(r,0xB1D2) : camera;
+        s_left = view_left(s_camera,width,r);
+        if (kind == SCENE_TILED) room_span(r,s_camera,&s_room_lo,&s_room_hi);
         else s_room_lo = s_room_hi = 0;
         select_waves(v);
         s_actor_lo = INT_MIN; s_actor_hi = INT_MAX;
         if (kind == SCENE_TILED) {
             int first, last;
-            room_blocks(s_room_lo, s_room_hi, &first, &last);
+            room_cover(s_room_lo, s_room_hi, &first, &last);
             if (last - first >= 32) { s_actor_lo = first; s_actor_hi = last; }
         }
         survey_planes(v);
@@ -972,9 +987,6 @@ static void scanline(const GVDP *v, int line, const uint32_t *native, int nw,
     s_origin = origin;
     int wrap_a = !tiled && unauthored(v,0,ha,nw);
     int wrap_b = !shared_b && unauthored(v,1,bg_h + center - origin,nw);
-    /* The lava arena reuses its cave backdrop across the horizontal shake.
-     * Its plane B name table is sparse outside the native viewport. */
-    if (stage == 43 && map == 4) wrap_b = 1;
     if (record && line == 128) {
         record->camera = camera; record->view_left = s_left; record->origin = origin;
         record->room_lo = s_room_lo; record->room_hi = s_room_hi;
@@ -1131,13 +1143,6 @@ static void scanline(const GVDP *v, int line, const uint32_t *native, int nw,
         int source = native_edge_x(stage,map,r16(r,0xB1D2),x-origin,nw);
         if (source != INT_MIN) out[x] = native[source];
     }
-    /* The lava arena's long platform is a 32-pixel repeating strip. The
-     * right-hand strip is always visible and does not contain the player,
-     * so it can complete the platform across the left wide margin. */
-    if (stage == 43 && map == 4 && nw >= 320 && line >= 172 && line < 184) {
-        for (int x = 0; x < origin && x < width; ++x)
-            out[x] = native[288 + ((x - origin) & 31)];
-    }
     /* Preserve the hardware-rendered original viewport exactly. Raster
      * effects, special boss sprites and streamed tile changes can differ
      * from our reconstruction; only the added side pixels need rebuilding.
@@ -1145,21 +1150,17 @@ static void scanline(const GVDP *v, int line, const uint32_t *native, int nw,
      * parallax, so the reconstruction stands there. */
     int window_y=(v->reg[18]&31)*8;
     int window_line=(v->reg[18]&128) ? line>=window_y : line<window_y;
-    /* The lava room shakes the horizontal scroll by one pixel. Preserve the
-     * native raster on both positions so its platform does not alternate
-     * between native pixels and a sparse tile reconstruction. The aircraft
-     * room clamps its camera; its transient right-edge dot field is likewise
-     * a reconstruction artifact within the still-authored native viewport. */
-    int preserve_native = origin == center || fog ||
-        (stage == 43 && map == 4 && abs(origin - center) <= 1) ||
-        (stage == 48 && map == 4);
+    /* The aircraft room clamps its camera; its transient right-edge dot
+     * field is a reconstruction artifact within the still-authored native
+     * viewport. */
+    int preserve_native = origin == center || fog || (stage == 48 && map == 4);
     if (!window_line && preserve_native) {
-        /* Native columns outside the room's own blocks show a sliver of the
+        /* Native columns outside the room's covered blocks show a sliver of the
          * neighbouring area (a bridge tower post at X=0); those keep the
          * room continuation drawn above, like the margins. */
         int from = 0, to = nw, first, last;
-        if (tiled && !(stage == 43 && map == 4)) {
-            room_blocks(s_room_lo, s_room_hi, &first, &last);
+        if (tiled) {
+            room_cover(s_room_lo, s_room_hi, &first, &last);
             if (last - first >= 32) {
                 if (first - s_camera > from) from = first - s_camera;
                 if (last - s_camera < to) to = last - s_camera;
@@ -1215,7 +1216,8 @@ void rka_video_history_command(int id, const char *json)
     if (since < oldest) since = oldest;
     static char out[128 * 400 + 128];
     int n = snprintf(out, sizeof out, "{\"id\":%d,\"count\":%u,\"frames\":[", id, s_frame_ring_count);
-    for (unsigned i = since, k = 0; i < s_frame_ring_count && k < 128; ++i, ++k) {
+    for (unsigned i = since, k = 0; i < s_frame_ring_count && k < 128 &&
+         n < (int)sizeof out - 512; ++i, ++k) {
         const FrameRecord *f = &s_frame_ring[i % FRAME_RING];
         n += snprintf(out + n, sizeof out - (size_t)n,
             "%s{\"i\":%u,\"frame\":%u,\"serial\":%u,\"stage\":%u,\"map\":%u,\"kind\":%u,\"width\":%u,"

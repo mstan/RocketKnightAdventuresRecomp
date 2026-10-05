@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.19)
-project(RocketKnightAdventuresRecomp VERSION 0.1.12 LANGUAGES C)
+project(RocketKnightAdventuresRecomp VERSION 0.1.13 LANGUAGES C)
 set(RKA_BUILD_VERSION "${PROJECT_VERSION}" CACHE STRING "Release version")
 if(NOT RKA_BUILD_VERSION MATCHES "^[0-9]+\\.[0-9]+\\.[0-9]+(-[A-Za-z0-9.]+)?$")
     message(FATAL_ERROR "Invalid RKA_BUILD_VERSION")
