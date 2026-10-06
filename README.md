@@ -1,169 +1,204 @@
-# RocketKnightAdventuresRecomp
+# Rocket Knight Adventures Recomp
 
-Static recompilation port of Rocket Knight Adventures (Konami, 1993,
-Sega Genesis) to native C, sharing the recompiler / runner engine with
-[SonicTheHedgehogRecomp](https://github.com/mstan/SonicTheHedgehogRecomp)
-and its siblings. The native build is a clean-room implementation (own
-VDP / bus / Z80 scheduling, ymfm FM). The retired emulator oracle is no
-longer in the source tree or shipped binaries.
+An unofficial native PC port of **Rocket Knight Adventures** (Konami, 1993)
+for the Sega Genesis / Mega Drive, built with the
+[Genesis recompilation framework](https://github.com/mstan/segagenesisrecomp).
+Play with adaptive widescreen, remappable controls, rewind, and a visual
+save-state browser.
 
-This is the **first non-Sonic game** on the engine — and the first with
-no community disassembly, so function discovery is heuristic instead of
-disasm-seeded. That makes RKA the proving ground for the engine's
-resilience layer (see below).
+**[Download v0.1.13](https://github.com/mstan/RocketKnightAdventuresRecomp/releases/tag/v0.1.13)**
+· [Release notes](release/v0.1.13.md)
+· [Report a bug](https://github.com/mstan/RocketKnightAdventuresRecomp/issues)
 
-## Status (v0.1.13)
+You must supply your own **Rocket Knight Adventures (USA)** ROM. The source
+and release packages do not include the game ROM.
 
-- Boots, full attract/title flow, opening cinematic.
-- Stage 1 playable end to end: correct background parallax and
-  per-strip scrolling, plane column streaming, full-charge rocket and
-  ricochet moves, end-of-stage sequence.
-- Gamepads work plug-and-play (tested with a DualSense / PS5 pad);
-  keyboard and pad are active simultaneously.
-- All seven stages render in widescreen, including vehicle rides, shooter
-  stages, boss arenas, cutscenes and shadow/highlight scenes.
-- Experimental custom widescreen renderer with adaptive window fitting,
-  fixed aspect ratios, and configurable enemy activation.
-- Playtest cheats as separate mods: Start Stage, Infinite Lives, Infinite
-  Health and Invincible.
+## Adaptive widescreen in action
 
-### The tier-3 interpreter fallback (always on for RKA)
+| Forest | Crystal caves |
+| :---: | :---: |
+| ![Sparkster facing a pig soldier in the forest, with the castle in the distance](docs/images/adaptive-forest.png) | ![Sparkster on a crystal platform above lava in the caves](docs/images/adaptive-cavern.png) |
+| **Bridge boss** | **Minecart ride** |
+| ![Sparkster fighting the tank boss on a suspension bridge](docs/images/adaptive-bridge.png) | ![Sparkster riding a minecart against a mountain backdrop](docs/images/adaptive-minecart.png) |
 
-Heuristic discovery cannot prove it found every function. Instead of a
-missed dispatch silently no-op'ing (the classic "stuck in place /
-softlock" failure), any call to code the recompiler didn't discover is
-executed **correctly at runtime by a clean-room 68000 interpreter**, and
-the executed addresses are written to `floor_coverage.toml` next to the
-exe. Those leads can be validated and folded back into the static function set on the
-next regeneration — so the port converges toward fully-native with
-every play session, and an undiscovered code path is a log line, not a
-crash.
+Captured from v0.1.13 with **Adaptive (fit window)** at 16:9 and **Expanded
+Spawn Range**. Adaptive follows the window when you resize it; the game
+pixels keep their proportions.
 
-## Known behavioral notes
+## Features
 
-- The attract-mode demo can desync from its recorded inputs (Sparkster
-  may die in the demo). Timing-fidelity item, tracked engine-side.
-- Raster-effect scenes (per-line vertical scroll) execute their
-  self-modifying RAM handlers on the interpreter by design.
-- The castle-corridor fire emitter needs a fresh-run playtest. Its linked
-  controller now uses the original spawn range; saves captured after the
-  premature activation still contain the already-created fire objects.
-- At the later machine-room wall, the left margin reuses some machinery
-  details. A flying boss can briefly show a thin propeller slice at the
-  extreme screen edge; the Earth transition retains its mirrored edge.
+- **Adaptive widescreen:** additional scenery and actors across all seven
+  stages, including vehicle sections, boss arenas, and cutscenes. Fixed
+  16:9, 21:9, and 32:9 modes are also available.
+- **Rewind:** browse snapshots of recent play and return to an earlier moment.
+- **Visual save states:** nine slots with previews, plus direct slot shortcuts.
+- **Keyboard and controllers:** simultaneous input and remappable bindings.
+- **Built-in mods:** choose enemy activation timing and optionally enable
+  Start Stage, Infinite Lives, Infinite Health, or Invincible.
 
-## Layout
+## Get started
 
-- `segagenesisrecomp/` — the shared engine (submodule): recompiler,
-  runner and clean-room video/audio backends. Generated C is ignored build output.
-- `game/` — RKA's configuration, discovery input, adapter, custom renderer
-  and mod settings. See [renderer notes](game/CUSTOM-VIDEO.md).
-- `CMakeLists.txt` — native `RKARecomp`.
-- `scripts/link-engine.*` — optional local-dev junction (`engine-local`)
-  to a shared workspace engine checkout; CMake prefers it over the
-  submodule when present.
-- `DEVELOPMENT.md` — bring-up investigation log.
+| Platform | Download | Requirements |
+| --- | --- | --- |
+| Windows x64 | [ZIP](https://github.com/mstan/RocketKnightAdventuresRecomp/releases/download/v0.1.13/RocketKnightAdventuresRecomp-windows-x64-v0.1.13.zip) | 64-bit Windows with working OpenGL |
+| Linux x86_64 | [AppImage](https://github.com/mstan/RocketKnightAdventuresRecomp/releases/download/v0.1.13/RocketKnightAdventuresRecomp-linux-x86_64-v0.1.13.AppImage) | Ubuntu 24.04 or a compatible system; glibc 2.39 and working OpenGL |
 
-## Building (Windows)
+[SHA-256 checksums](https://github.com/mstan/RocketKnightAdventuresRecomp/releases/download/v0.1.13/SHA256SUMS.txt)
+are available for both packages. Older Linux distributions and Steam Deck
+have not been validated.
 
-```cmd
-git clone --recursive https://github.com/mstan/RocketKnightAdventuresRecomp.git
-cd RocketKnightAdventuresRecomp
-copy path\to\rka.bin game\rka.bin
-cmake -S . -B build -G "Visual Studio 17 2022" -A x64
-cmake --build build --config Release --target RKARecomp
+1. Extract the entire Windows ZIP into a writable folder, or place the Linux
+   AppImage in one and make it executable with `chmod +x`.
+2. Run `RKARecomp.exe` or the AppImage and select your ROM in the launcher.
+3. Open **Mods > Widescreen**, enable it, and choose **Adaptive (fit window)**.
+4. Launch the game. Resize the window to change the visible playfield.
+
+The supported ROM is a raw **USA** cartridge dump: **1,048,576 bytes**, CRC32
+**`A6EFEC47`**. Other regions and modified ROMs are unsupported.
+
+On Linux, use `--appimage-extract-and-run` if FUSE is unavailable. The ROM
+picker uses `zenity`, `kdialog`, or `yad`; you can also place the ROM beside
+the AppImage as `rka.bin`, or pass its path on the command line.
+
+Settings and save states live beside the executable or AppImage. When
+upgrading, preserve `settings.ini`, `rka-video.ini`, `rom-RKA.cfg`, and your
+`native_save_N.bin` files.
+
+## Widescreen and enemy activation
+
+**Adaptive (fit window)** fits the current window. The original playfield
+remains the minimum width, and the HUD counters stay centered. Some title,
+menu, and presentation screens retain the original centered picture.
+Turning the Widescreen mod off restores the original view and activation
+rules.
+
+**Mods > Widescreen > Enemy activation** offers two choices:
+
+- **Expanded Spawn Range** (default) brings enemies into the wider view
+  earlier and keeps them active longer. This changes encounter timing and
+  can put more enemies on screen. The castle fire corridor retains its
+  original placement timing to avoid activating its linked effects early.
+- **Original Spawn Range** keeps the original camera's activation timing.
+  Enemies can visibly appear inside the wider view when they enter that range.
+
+For a direct launch with Adaptive enabled:
+
+```text
+RKARecomp.exe rka.bin --no-launcher --widescreen fit
 ```
 
-CMake builds the current recompiler and regenerates native C whenever the ROM,
-configuration/discovery inputs, generation options, or recompiler changes.
+## Controls, saves, and rewind
 
-### Release packages (Windows and Linux x64)
+Default game controls can be remapped in the launcher.
 
-The scripts adapted from Super Mario World build production binaries with
-all three diagnostic options disabled, stage launcher assets and license
-notices, and exclude ROMs and local settings. Windows packages verify the
-complete DLL import closure. Linux packages use pinned, hash-checked AppImage
-tools and test writable state paths. See [release instructions](RELEASING.md).
+| Action | Keyboard | Xbox / PlayStation controller |
+| --- | --- | --- |
+| Move | Arrow keys | D-pad or left stick |
+| Jump (Genesis B) | X | A / Cross |
+| Attack / charge rocket (Genesis A or C) | Z or C | B / Circle or X / Square |
+| Start / pause | Enter | Start / Options |
 
-```powershell
-./tools/build-windows.ps1 -Version 0.1.13
-```
+| Tool | Keyboard | Controller |
+| --- | --- | --- |
+| Save-state browser | F7 | Back/View + RB |
+| Rewind browser | F8 | Back/View + right-stick click |
+
+In either browser, use arrows or the D-pad to select, **Enter / A** to load
+or restore, and **Esc / B** to cancel. In the save-state browser, **S / X**
+saves into the selected slot. Browser button names refer to the Xbox layout.
+
+Rewind needs a few seconds of play to build its history. Its depth and
+snapshot interval are configurable in the launcher. Existing
+`native_save_N.bin` files work in the visual browser.
+
+<details>
+<summary>Direct save-slot shortcuts</summary>
+
+**Shift+F1–F9** saves to a slot. **F1–F6** and **F9** load directly;
+**Ctrl+F7** and **Ctrl+F8** load slots 7 and 8.
+
+</details>
+
+## Known issues
+
+This is an early release. v0.1.13 has been exercised across all 54 stage areas
+and tester-provided saves from all seven stages, with automated renderer and
+Windows/Linux package checks. Some visual imperfections remain:
+
+- A few arena and cutscene margins repeat or mirror background details,
+  particularly in the later machine room and the Earth transition. Some boss
+  artwork clips at arena edges.
+- A flying boss can briefly show a thin propeller slice at the extreme screen
+  edge as it enters the view.
+- The attract demo can diverge from its recorded inputs, so Sparkster may
+  die during the demonstration.
+
+The revised castle-fire activation timing still needs more fresh-run testing.
+Older saves can retain fire objects activated prematurely by an earlier build.
+
+## Reporting bugs
+
+[Open an issue](https://github.com/mstan/RocketKnightAdventuresRecomp/issues)
+with the release version, operating system, stage, aspect ratio, enemy
+activation setting, and steps to reproduce. A screenshot or short recording
+helps with visual problems; a `native_save_N.bin` from just before the problem
+is especially useful.
+
+If generated, attach `dispatch_misses.toml`, `interior_label_misses.toml`,
+`floor_unsafe.toml`, and `floor_coverage.toml` from the game folder. Please
+do not attach your ROM.
+
+## Building from source
+
+Clone with submodules, then place the supported ROM at `game/rka.bin`:
 
 ```sh
-bash tools/build-linux.sh --version 0.1.13 --jobs 8
+git clone --recurse-submodules https://github.com/mstan/RocketKnightAdventuresRecomp.git
+cd RocketKnightAdventuresRecomp
 ```
 
-Windows output: `release-stage/*-windows-x64-v0.1.13.zip`.
-Linux output: `release-linux/*-linux-x86_64-v0.1.13.AppImage`.
-Both include SHA-256 checksum files. Linux v0.1.13 is built on Ubuntu 24.04;
-older distributions and Steam Deck have not been validated.
+**Windows:** install Visual Studio 2022 with C++ build tools, CMake, and Python 3.
 
-## Running
-
-This repository and its releases contain **no game data**. Bring your
-own legally obtained ROM dump of Rocket Knight Adventures (USA), 1 MB:
-
-```cmd
-RKARecomp.exe rka.bin --no-launcher
+```powershell
+cmake -S . -B build -G "Visual Studio 17 2022" -A x64
+cmake --build build --config Release --target RKARecomp --parallel
+./build/Release/RKARecomp.exe
 ```
 
-### Adaptive widescreen
+**Linux:** install a C/C++ compiler, CMake, Python 3, `pkg-config`, SDL2
+development headers, and OpenGL development libraries.
 
-Open **Mods → Widescreen**, enable it, and leave **Aspect ratio** on
-**Adaptive (fit window)**. The renderer follows the window as it resizes;
-16:9, 21:9 and 32:9 presets are also available. Terrain is reconstructed from
-RKA's level layout, with live tile art, palettes, scrolling and actor mappings.
-The HUD counters stay centered, with the window border covering the full
-height of both side margins. Pixels keep their proportions. Background
-planes and the castle scenery follow the wider camera at the level edges
-while independent cloud motion and scenery animation are retained.
-
-**Enemy activation** offers:
-
-- **Expanded Spawn Range** (default): activates and retains enemies across the
-  wider tiled levels and moves the water-ride and rail-ride enemy entry points
-  to the wider edges. This changes encounter timing and can make more enemies
-  active.
-- **Original Spawn Range**: keeps the original camera's spawn and despawn
-  behavior. Enemies can appear inside the wider view as they enter that range.
-
-The view stops at level boundaries, and narrow windows retain at least the
-original 320-pixel playfield. Adaptive has no 32:9 cap. Special presentation
-modes that cannot use the level renderer retain the original centered image.
-Disabling Widescreen restores the native renderer and activation rules.
-
-Settings are saved when launching: aspect/enabled state in `settings.ini`,
-enemy activation in `rka-video.ini` beside it. For scripted runs:
-
-```cmd
-RKARecomp.exe rka.bin --no-launcher --widescreen fit
-RKARecomp.exe rka.bin --no-launcher --widescreen 21:9
+```sh
+cmake -S . -B build -DCMAKE_BUILD_TYPE=Release
+cmake --build build --target RKARecomp --parallel
+./build/RKARecomp
 ```
 
-Automated checks cover the castle demo, outdoor stage 1, scrolling, earlier
-enemy activation and live resizing. A complete playthrough of later stages
-with the custom renderer is still needed.
+CMake builds the recompiler and generates the game code from your ROM.
+See [RELEASING.md](RELEASING.md) for production builds and packaging.
 
-### Controls
+## How it works
 
-| Genesis | Keyboard | Pad (Xbox / DualSense) |
-| ------- | -------- | ---------------------- |
-| D-pad   | Arrows   | D-pad or left stick    |
-| B (jump) | X | A / Cross |
-| A (attack / rocket charge) | Z | B / Circle |
-| C (attack / rocket charge) | C | X / Square |
-| Start   | Enter    | Start / Options        |
+The project recompiles the game's 68000 code to C and uses the shared
+[segagenesisrecomp](https://github.com/mstan/segagenesisrecomp) runtime for
+graphics, audio, and execution. Code not yet covered by static recompilation
+runs through the runtime's 68000 interpreter fallback; coverage reports help
+bring more of those routines into the generated code.
 
-F7 opens the visual nine-slot save-state browser; F8 opens rewind after a few
-seconds of play. Use arrows or the D-pad to choose, Enter/A to load or restore,
-S/X to save in the browser, and Esc/B to cancel. On a controller, Back/View +
-RB opens the browser and Back/View + right-stick click opens rewind. Rewind
-depth and interval can be changed in the launcher. Shift+F1–F9 remains the
-direct save shortcut; F1–F6/F9 directly load, while Ctrl+F7/F8 load slots
-7/8. Existing `native_save_N.bin` files work in the browser.
+RKA's custom renderer reconstructs the wider scenery from the game's level
+layouts and live graphics data. The game-specific implementation and address
+notes are in [game/CUSTOM-VIDEO.md](game/CUSTOM-VIDEO.md). The launcher comes
+from [recomp-ui](https://github.com/mstan/recomp-ui), and the shared
+[rbengine](https://github.com/RetroPortingToolKit/rbengine) snapshot system supports rewind.
 
-## License
+## License and acknowledgments
 
-Engine and port are PolyForm Noncommercial 1.0.0; bundled third-party
-components retain their own licenses (see `THIRD-PARTY-LICENSES.md` and
-`licenses/` inside each release).
+The port and framework use the
+[PolyForm Noncommercial 1.0.0 license](LICENSE.md). Third-party components
+retain their own licenses; release packages include `THIRD-PARTY-LICENSES.md`
+and a `licenses/` directory.
+
+Thanks to the shared framework contributors and the testers who supplied
+playthrough feedback, screenshots, and save states. Rocket Knight Adventures
+and its game artwork belong to Konami. This project is unofficial and is not
+affiliated with Konami or Sega.

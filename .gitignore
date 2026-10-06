@@ -20,6 +20,7 @@ engine-local/
 *.srm
 *.wav
 *.png
+!/docs/images/*.png
 *.log
 run.err
 run.out
