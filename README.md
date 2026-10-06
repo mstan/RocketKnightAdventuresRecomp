@@ -1,3 +1,5 @@
+**Special thanks to l0ll0_76 (L0LL0) for extensive QA and playtesting of Rocket Knight Adventures Recomp.**
+
 # Rocket Knight Adventures Recomp
 
 An unofficial native PC port of **Rocket Knight Adventures** (Konami, 1993)
@@ -132,9 +134,6 @@ Windows/Linux package checks. Some visual imperfections remain:
   edge as it enters the view.
 - The attract demo can diverge from its recorded inputs, so Sparkster may
   die during the demonstration.
-
-The revised castle-fire activation timing still needs more fresh-run testing.
-Older saves can retain fire objects activated prematurely by an earlier build.
 
 ## Reporting bugs
 
