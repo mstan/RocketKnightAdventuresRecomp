@@ -1,4 +1,4 @@
-Rocket Knight Adventures Recomp v0.1.13
+Rocket Knight Adventures Recomp v0.1.14
 =====================================
 
 Bring your own Rocket Knight Adventures (USA) ROM: 1,048,576 bytes,

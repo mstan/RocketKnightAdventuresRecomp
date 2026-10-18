@@ -8,8 +8,8 @@ for the Sega Genesis / Mega Drive, built with the
 Play with adaptive widescreen, remappable controls, rewind, and a visual
 save-state browser.
 
-**[Download v0.1.13](https://github.com/mstan/RocketKnightAdventuresRecomp/releases/tag/v0.1.13)**
-· [Release notes](release/v0.1.13.md)
+**[Download v0.1.14](https://github.com/mstan/RocketKnightAdventuresRecomp/releases/tag/v0.1.14)**
+· [Release notes](release/v0.1.14.md)
 · [Report a bug](https://github.com/mstan/RocketKnightAdventuresRecomp/issues)
 
 You must supply your own **Rocket Knight Adventures (USA)** ROM. The source

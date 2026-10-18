@@ -65,6 +65,10 @@ for f in a.generated.glob('*_part*.c'):
             spans.append((int(body[:6], 16), max(pcs)))
 
 
+if not gen or not starts or not spans:
+    p.error('--generated must contain populated *_part*.c files; use the game output subdirectory')
+
+
 def interior(addr):
     return addr in gen or any(lo < addr <= hi for lo, hi in spans)
 oracle = set()
@@ -132,12 +136,12 @@ lines = [
 for addr, kind in accepted:
     lines.append(f'  0x{addr:06X},')
 lines.append(']')
-a.out.write_text('\n'.join(lines) + '\n')
+a.out.write_text('\n'.join(lines) + '\n', newline='\n')
 for addr, why in rejected:
     print(f'rejected ${addr:06X}: {why}')
 print(f'accepted {len(accepted)}, rejected {len(rejected)} '
       f'({sum("interior" in w for _, w in rejected)} interior) -> {a.out}')
 if a.oracle_out:
     a.oracle_out.write_text('# executed ROM instruction-start PCs: attract, all-area sweep, and owner-save floor capsules\n' +
-                            ''.join(f'{x:06X}\n' for x in sorted(oracle) if x < len(rom)))
+                            ''.join(f'{x:06X}\n' for x in sorted(oracle) if x < len(rom)), newline='\n')
     print(f'oracle {len(oracle)} PCs -> {a.oracle_out}')
