@@ -32,7 +32,7 @@ runtime_exec_file = "rka_executed_pcs_sweep.txt"
 # validated against rka_fold_oracle.txt and a clean decode, never inside an
 # existing function (tools/fold_floor_coverage.py). Every regen is gated by
 # tools/compare_native_coverage.py: no previously native instruction may be lost.
-discovery_files = ["rka_floor_sweep.discovery.toml", "rka_stage1_newrun.discovery.toml"]
+discovery_files = ["rka_floor_sweep.discovery.toml", "rka_stage1_newrun.discovery.toml", "rka_route_coverage.discovery.toml"]
 
 # Runtime executed-PC coverage is an additive evidence gate, never a direct
 # function-boundary oracle: observing a PC proves code, but not a callable ABI

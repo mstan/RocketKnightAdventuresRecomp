@@ -1,0 +1,25 @@
+# Validated tier-3 floor targets (tools/fold_floor_coverage.py).
+# Evidence: 41 floor_coverage.toml and 42 executed-PC oracle inputs
+# Executed-PC evidence from coverage sweeps and owner-save floor capsules.
+# Each entry was executed by the floor as a call/jump target and its straight-line
+# run decodes cleanly and appears in the executed-PC oracle.
+# accepted=15 rejected=11
+
+[functions]
+late_extra = [
+  0x024C50,
+  0x02A076,
+  0x02A082,
+  0x02A40A,
+  0x02A44E,
+  0x02A4D6,
+  0x02A532,
+  0x02A586,
+  0x02A5C4,
+  0x02A600,
+  0x02A640,
+  0x02A686,
+  0x02A6AA,
+  0x02A6F4,
+  0x0348A2,
+]
