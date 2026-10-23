@@ -29,7 +29,10 @@ root = Path(__file__).resolve().parents[1]
 out = a.out.resolve()
 out.mkdir(parents=True, exist_ok=True)
 env = {k: v for k, v in os.environ.items() if not k.startswith(('GENESIS_', 'SDL_', 'LNG_', 'RNET_'))}
-env.update(SDL_VIDEODRIVER='dummy', SDL_RENDER_DRIVER='software', SDL_AUDIODRIVER='dummy',
+# No host controller may reach a scripted run.
+env.update(SDL_JOYSTICK_RAWINPUT='0', SDL_JOYSTICK_HIDAPI='0', SDL_JOYSTICK_WGI='0',
+           SDL_DIRECTINPUT_ENABLED='0', SDL_XINPUT_ENABLED='0',
+           SDL_VIDEODRIVER='dummy', SDL_RENDER_DRIVER='software', SDL_AUDIODRIVER='dummy',
            GENESIS_RUN_DONE='1', GENESIS_NO_LAUNCHER='1')
 summary = []
 sources = [tuple(z.split("=", 1)) for z in a.zip] or \
@@ -83,8 +86,7 @@ for stage, zpath in sources:
                 (run / 'route.input').write_text(script)
                 command = [str(exe), str(root / 'game/rka.bin'), '--no-launcher', '--benchmark', str(max(3000, a.frames + 1000)),
                            '--input-script', str(run / 'route.input')]
-                if mode != 'off':
-                    command += ['--widescreen', mode]
+                command += ['--widescreen', mode]  # explicit: games may default to widescreen
                 with (run / 'process.log').open('w') as log:
                     result = subprocess.run(command, cwd=run, env=env, stdout=log, stderr=subprocess.STDOUT,
                                             timeout=120, creationflags=subprocess.CREATE_NO_WINDOW)

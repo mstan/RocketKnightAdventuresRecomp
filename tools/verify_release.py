@@ -27,7 +27,9 @@ prelude = (root / "tests/stage1-walk.input").read_text().split("HOLD RIGHT")[0]
 report = {"package_sha256": hashlib.sha256(a.package.read_bytes()).hexdigest(), "cases": {}}
 
 
-def capture(name, mode, spawn="original", castle=False, edge=None):
+def capture(name, mode, spawn="original", castle=False, edge=None, settings=None):
+    """mode=None passes no --widescreen and spawn=None writes no rka-video.ini,
+    so the packaged built-in defaults apply as on a fresh install."""
     dest = out / name
     dest.mkdir()
     if a.package.suffix == ".zip":
@@ -42,7 +44,10 @@ def capture(name, mode, spawn="original", castle=False, edge=None):
         shutil.copy2(a.package, exe)
         exe.chmod(0o755)
         command = [str(exe), "--appimage-extract-and-run"]
-    (dest / "rka-video.ini").write_text(f"spawn_range={spawn}\n")
+    if spawn is not None:
+        (dest / "rka-video.ini").write_text(f"spawn_range={spawn}\n")
+    if settings is not None:
+        (dest / "settings.ini").write_text(settings)
     if castle:
         route = "WAIT 1800\n"
     elif edge == "idle":
@@ -57,10 +62,13 @@ def capture(name, mode, spawn="original", castle=False, edge=None):
     (dest / "route.input").write_text(route)
     command += [str(a.rom.resolve()), "--no-launcher", "--benchmark", "16000",
                 "--input-script", str(dest / "route.input")]
-    if mode != "off":
-        command += ["--widescreen", mode]
+    if mode is not None:
+        command += ["--widescreen", mode]  # explicit: games may default to widescreen
     env = {k: v for k, v in os.environ.items() if not k.startswith(("SDL_", "GENESIS_", "RNET_", "LNG_"))}
-    env.update(SDL_VIDEODRIVER="dummy", SDL_RENDER_DRIVER="software", SDL_AUDIODRIVER="dummy", GENESIS_RUN_DONE="1")
+    # No host controller may reach a scripted run.
+    env.update(SDL_JOYSTICK_RAWINPUT="0", SDL_JOYSTICK_HIDAPI="0", SDL_JOYSTICK_WGI="0",
+               SDL_DIRECTINPUT_ENABLED="0", SDL_XINPUT_ENABLED="0",
+               SDL_VIDEODRIVER="dummy", SDL_RENDER_DRIVER="software", SDL_AUDIODRIVER="dummy", GENESIS_RUN_DONE="1")
     if os.name == "nt":
         system_root = os.environ["SystemRoot"]
         env["PATH"] = system_root + "\\System32;" + system_root
@@ -120,6 +128,24 @@ idle = Image.open(capture("edge-idle", "32:9", edge="idle") / "scene.png").conve
 walk = Image.open(capture("edge-walk", "32:9", edge="walk") / "scene.png").convert("RGB")
 for box in ((315,75,390,125),(500,32,760,64),(600,128,700,144)):
     assert ImageChops.difference(idle.crop(box),walk.crop(box)).getbbox() is None
+# Fresh install: no settings.ini, no rka-video.ini, no --widescreen. The
+# package must start in Adaptive widescreen with Expanded Spawn Range and
+# behave exactly like an explicit fit/expanded run.
+def same(x, y):
+    for ext in ("ram", "vram"):
+        assert (x / f"scene.{ext}").read_bytes() == (y / f"scene.{ext}").read_bytes(), (x.name, y.name, ext)
+    xi, yi = (Image.open(f / "scene.png").convert("RGB") for f in (x, y))
+    assert xi.size == yi.size and ImageChops.difference(xi, yi).getbbox() is None, (x.name, y.name)
+fresh = capture("fresh-default", None, spawn=None)
+assert not (fresh / "settings.ini").exists() or "enabled" not in (fresh / "settings.ini").read_text()
+assert Image.open(fresh / "scene.png").width > 320, "fresh install did not start in widescreen"
+same(fresh, capture("stage-fit", "fit", "expanded"))
+# A saved explicit off (as the launcher writes it) must survive the new default.
+saved_off = capture("saved-off", None, settings="[mods.widescreen]\nenabled = 0\naspect = fit\n")
+assert Image.open(saved_off / "scene.png").width == 320
+same(saved_off, native)
+report["fresh_default"] = {"size": Image.open(fresh / "scene.png").size, "equals": "stage-fit",
+                           "saved_off_equals": "stage-native"}
 report.update(native_parity=True, slim_hud=True, castle_and_plane_parallax=True)
 (out / "verification.json").write_text(json.dumps(report, indent=2))
 print(f"PASS packaged release: {out / 'verification.json'}")

@@ -43,12 +43,14 @@ route += (f"WAIT {a.frames}\nSCREENSHOT {(out / 'scene.png').as_posix()}\n"
 (out / "route.input").write_text(route, encoding="utf-8")
 env = {k: v for k, v in os.environ.items()
        if not k.startswith(("GENESIS_", "SDL_", "LNG_", "RNET_"))}
-env.update(SDL_VIDEODRIVER="dummy", SDL_RENDER_DRIVER="software", SDL_AUDIODRIVER="dummy",
+# No host controller may reach a scripted run.
+env.update(SDL_JOYSTICK_RAWINPUT="0", SDL_JOYSTICK_HIDAPI="0", SDL_JOYSTICK_WGI="0",
+           SDL_DIRECTINPUT_ENABLED="0", SDL_XINPUT_ENABLED="0",
+           SDL_VIDEODRIVER="dummy", SDL_RENDER_DRIVER="software", SDL_AUDIODRIVER="dummy",
            GENESIS_RUN_DONE="1", GENESIS_NO_LAUNCHER="1")
 cmd = [str(exe), str(a.rom.resolve()), "--no-launcher", "--benchmark", "16000",
        "--input-script", str(out / "route.input")]
-if a.mode != "off":
-    cmd += ["--widescreen", a.mode]
+cmd += ["--widescreen", a.mode]  # explicit: games may default to widescreen
 if a.inspect:
     with socket.socket() as sock:
         sock.bind(("127.0.0.1",0));port=sock.getsockname()[1]

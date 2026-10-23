@@ -45,12 +45,14 @@ with socket.socket() as s:
     port = s.getsockname()[1]
 (out / 'debug.ini').write_text(f'port={port}\n')
 env = {k: v for k, v in os.environ.items() if not k.startswith(('GENESIS_', 'SDL_', 'LNG_', 'RNET_'))}
-env.update(SDL_VIDEODRIVER='dummy', SDL_RENDER_DRIVER='software', SDL_AUDIODRIVER='dummy',
+# No host controller may reach a scripted run.
+env.update(SDL_JOYSTICK_RAWINPUT='0', SDL_JOYSTICK_HIDAPI='0', SDL_JOYSTICK_WGI='0',
+           SDL_DIRECTINPUT_ENABLED='0', SDL_XINPUT_ENABLED='0',
+           SDL_VIDEODRIVER='dummy', SDL_RENDER_DRIVER='software', SDL_AUDIODRIVER='dummy',
            GENESIS_RUN_DONE='1', GENESIS_NO_LAUNCHER='1')
 cmd = [str(out / a.exe.name), str(root / 'game/rka.bin'), '--no-launcher', '--benchmark', '100000',
        '--input-script', str(out / 'route.input')]
-if a.mode != 'off':
-    cmd += ['--widescreen', a.mode]
+cmd += ['--widescreen', a.mode]  # explicit: games may default to widescreen
 cmd += ['--exec-coverage-out', str(out / 'exec_pcs.txt')]
 if a.force_interp:
     env['GENESIS_FORCE_INTERP'] = '1'

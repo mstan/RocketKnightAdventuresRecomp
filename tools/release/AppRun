@@ -17,7 +17,9 @@ fi
 mkdir -p "$STATE/assets"
 cp -R "$HERE/usr/bin/assets/." "$STATE/assets/"
 chmod -R u+rwX "$STATE/assets"
-[ -f "$STATE/settings.ini" ] || printf '[video]\ncustom_widescreen=0\ncustom_aspect=0\n' > "$STATE/settings.ini"
+# Seed an empty settings file only; the game's built-in defaults (Adaptive
+# widescreen on) apply until the player saves a choice in the launcher.
+[ -f "$STATE/settings.ini" ] || printf '# Rocket Knight Adventures Recomp settings; the launcher writes them here.\n' > "$STATE/settings.ini"
 [ -f "$STATE/rka-video.ini" ] || printf 'spawn_range=expanded\n' > "$STATE/rka-video.ini"
 cd "$STATE"
 cached=""
