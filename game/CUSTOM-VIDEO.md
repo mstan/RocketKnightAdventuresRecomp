@@ -179,6 +179,12 @@ off immediately restores the native loader/culling rules; existing actors
 leave through the game's normal despawn processing. Selecting a smaller
 range does not rewind encounters that have already occurred.
 
+A fresh install starts with the Widescreen mod on in Adaptive (fit window):
+`rka_spec.c` sets `GameSpec.video_default = "fit"`, which the engine applies
+before loading `settings.ini`. A saved `[mods.widescreen] enabled` value,
+including 0, still wins, and `--widescreen <mode>` overrides both. Scripted
+tools therefore always pass an explicit `--widescreen` mode.
+
 The default is Expanded Spawn Range. `rka_options.c` composes the engine's
 Widescreen mod provider and persists `spawn_range=expanded|original` in
 `rka-video.ini` beside `settings.ini`. Because activation affects simulation,

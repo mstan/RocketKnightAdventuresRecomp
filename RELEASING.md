@@ -1,6 +1,6 @@
 # Releasing RKA
 
-Keep the repository private until the owner requests otherwise. Build from a
+Do not change repository visibility unless the owner asks. Build from a
 clean, committed checkout with initialized submodules and an owner-supplied
 USA ROM at `game/rka.bin` (CRC32 `A6EFEC47`). Never commit or distribute it.
 
@@ -10,7 +10,7 @@ Requires Visual Studio 2022 C++ tools, CMake and Python 3. The CMake executable
 and Python interpreter can be selected explicitly to avoid MSYS PATH shims.
 
 ```powershell
-./tools/build-windows.ps1 -Version 0.1.13 -Python C:/path/to/python.exe
+./tools/build-windows.ps1 -Version 1.0.0 -Python C:/path/to/python.exe
 ```
 
 This configures Release with tracing and reverse-debug instrumentation off
@@ -26,7 +26,7 @@ On Ubuntu 24.04 install `build-essential cmake pkg-config libsdl2-dev
 libgl1-mesa-dev curl python3 patchelf imagemagick`. Build in Linux or WSL:
 
 ```sh
-bash tools/build-linux.sh --version 0.1.13 --jobs 8
+bash tools/build-linux.sh --version 1.0.0 --jobs 8
 ```
 
 `--build DIR`, `--out DIR` and `--no-package` are available. The script verifies
@@ -48,12 +48,15 @@ catalog. Run `--appimage-extract-and-run` when FUSE is unavailable.
    launcher assets, native rendering, widescreen and both spawn modes.
 2. `tools/verify_release.py` compares the actual packages across platforms and
    checks native RAM/VRAM parity in Original mode, HUD framing and the opening
-   background behavior. It needs Pillow and writes local, ignored evidence.
+   background behavior. It also proves a fresh folder starts in Adaptive
+   widescreen and that a saved `enabled = 0` still starts in the original
+   view. It needs Pillow and writes local, ignored evidence.
 3. Confirm the Git checkout and submodules are clean; merge the release branch
-   into `main`, push, and tag that commit `v0.1.13`. Reconfigure/repackage so the
+   into `main`, push, and tag that commit `v1.0.0`. Reconfigure/repackage so the
    embedded `build-info.json` identifies that exact commit.
-4. Publish the ZIP, AppImage and `SHA256SUMS.txt` to the private GitHub release.
-   Verify uploaded hashes, the tag target, `origin/main`, and private visibility.
+4. Publish the ZIP, AppImage and `SHA256SUMS.txt` to the GitHub release and
+   mark it latest. Verify uploaded hashes, the tag target, `origin/main`, and
+   unchanged visibility.
 
 Full renderer diagnostics and live resize coverage use the trace-enabled
 `tools/verify_video.py` workflow documented in `game/CUSTOM-VIDEO.md`.

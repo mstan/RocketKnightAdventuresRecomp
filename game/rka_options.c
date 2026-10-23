@@ -73,7 +73,10 @@ static int package_get(void *ctx,int i,RecompLauncherCModPackage *out)
         out->enabled=rka_cheats_on(c);out->option_count=0;return 1;
     }
     int ok=s_base->package_get(s_base->ctx,i,out);
-    if(ok && !strcmp(out->id,"custom-widescreen")) out->option_count=2;
+    if(ok && !strcmp(out->id,"custom-widescreen")) {
+        out->option_count=2;
+        COPY(out->description,"Wider Rocket Knight Adventures scenery and actors without stretching. On by default; disable it for the original 4:3 view.");
+    }
     return ok;
 }
 static int feature_count(void *ctx) { (void)ctx;return base_count(s_base->feature_count)+rka_cheats_count(); }
@@ -95,6 +98,7 @@ static int feature_get(void *ctx,int i,RecompLauncherCModFeature *out)
     if(ok && owns(out->package_id,out->id)) {
         out->option_count=2;
         COPY(out->description,"Draw the wider Rocket Knight Adventures world without stretching. Adaptive fits the window; choose when offscreen enemies become active.");
+        COPY(out->status,out->enabled?"Enabled":"Disabled (original 4:3 view)");
     }
     return ok;
 }

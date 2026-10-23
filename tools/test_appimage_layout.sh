@@ -20,6 +20,10 @@ run() {
 state="$WORK/folder with spaces"
 run "$state"
 test -s "$state/settings.ini"
+# The seed must not pre-select a video mode; built-in defaults decide.
+if grep -Eq '^[[:space:]]*\[|=' "$state/settings.ini"; then
+    echo "AppRun seeded settings instead of using built-in defaults" >&2; exit 1
+fi
 test -s "$state/assets/fonts/LatoLatin-Regular.ttf"
 printf '\n# user marker\n' >> "$state/settings.ini"
 printf 'spawn_range=original\n' > "$state/rka-video.ini"

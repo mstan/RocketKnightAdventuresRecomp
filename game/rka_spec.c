@@ -50,6 +50,8 @@ static const GameDebugCommand rka_commands[] = {
 };
 const GameSpec g_game_spec = {
     .video                  = &rka_video,
+    /* Fresh installs start in Adaptive widescreen; a saved choice wins. */
+    .video_default          = "fit",
     .load_settings          = rka_load_settings,
     .mods                   = rka_mods,
     .netplay_config_image    = rka_config_image,

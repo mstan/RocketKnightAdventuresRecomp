@@ -8,8 +8,11 @@ for the Sega Genesis / Mega Drive, built with the
 Play with adaptive widescreen, remappable controls, rewind, and a visual
 save-state browser.
 
-**[Download v0.1.14](https://github.com/mstan/RocketKnightAdventuresRecomp/releases/tag/v0.1.14)**
-· [Release notes](release/v0.1.14.md)
+Version 1.0 is the first stable release: adaptive widescreen covers all seven
+stages and is on by default.
+
+**[Download v1.0.0](https://github.com/mstan/RocketKnightAdventuresRecomp/releases/tag/v1.0.0)**
+· [Release notes](release/v1.0.0.md)
 · [Report a bug](https://github.com/mstan/RocketKnightAdventuresRecomp/issues)
 
 You must supply your own **Rocket Knight Adventures (USA)** ROM. The source
@@ -42,18 +45,20 @@ pixels keep their proportions.
 
 | Platform | Download | Requirements |
 | --- | --- | --- |
-| Windows x64 | [ZIP](https://github.com/mstan/RocketKnightAdventuresRecomp/releases/download/v0.1.13/RocketKnightAdventuresRecomp-windows-x64-v0.1.13.zip) | 64-bit Windows with working OpenGL |
-| Linux x86_64 | [AppImage](https://github.com/mstan/RocketKnightAdventuresRecomp/releases/download/v0.1.13/RocketKnightAdventuresRecomp-linux-x86_64-v0.1.13.AppImage) | Ubuntu 24.04 or a compatible system; glibc 2.39 and working OpenGL |
+| Windows x64 | [ZIP](https://github.com/mstan/RocketKnightAdventuresRecomp/releases/download/v1.0.0/RocketKnightAdventuresRecomp-windows-x64-v1.0.0.zip) | 64-bit Windows with working OpenGL |
+| Linux x86_64 | [AppImage](https://github.com/mstan/RocketKnightAdventuresRecomp/releases/download/v1.0.0/RocketKnightAdventuresRecomp-linux-x86_64-v1.0.0.AppImage) | Ubuntu 24.04 or a compatible system; glibc 2.39 and working OpenGL |
 
-[SHA-256 checksums](https://github.com/mstan/RocketKnightAdventuresRecomp/releases/download/v0.1.13/SHA256SUMS.txt)
+[SHA-256 checksums](https://github.com/mstan/RocketKnightAdventuresRecomp/releases/download/v1.0.0/SHA256SUMS.txt)
 are available for both packages. Older Linux distributions and Steam Deck
 have not been validated.
 
 1. Extract the entire Windows ZIP into a writable folder, or place the Linux
    AppImage in one and make it executable with `chmod +x`.
 2. Run `RKARecomp.exe` or the AppImage and select your ROM in the launcher.
-3. Open **Mods > Widescreen**, enable it, and choose **Adaptive (fit window)**.
-4. Launch the game. Resize the window to change the visible playfield.
+3. Launch the game. Widescreen starts on in **Adaptive (fit window)**; resize
+   the window to change the visible playfield.
+4. For the original 4:3 view or a fixed aspect ratio, open **Mods >
+   Widescreen** in the launcher and turn it off or choose another mode.
 
 The supported ROM is a raw **USA** cartridge dump: **1,048,576 bytes**, CRC32
 **`A6EFEC47`**. Other regions and modified ROMs are unsupported.
@@ -64,15 +69,17 @@ the AppImage as `rka.bin`, or pass its path on the command line.
 
 Settings and save states live beside the executable or AppImage. When
 upgrading, preserve `settings.ini`, `rka-video.ini`, `rom-RKA.cfg`, and your
-`native_save_N.bin` files.
+`native_save_N.bin` files. A saved Widescreen choice is kept: if an earlier
+version saved it as off, turn it on under **Mods > Widescreen**.
 
 ## Widescreen and enemy activation
 
-**Adaptive (fit window)** fits the current window. The original playfield
-remains the minimum width, and the HUD counters stay centered. Some title,
-menu, and presentation screens retain the original centered picture.
-Turning the Widescreen mod off restores the original view and activation
-rules.
+Widescreen is on by default in **Adaptive (fit window)**, which fits the
+current window; fixed 16:9, 21:9, and 32:9 modes are also available. The
+original playfield remains the minimum width, and the HUD counters stay
+centered. Some title, menu, and presentation screens retain the original
+centered picture. Turning the Widescreen mod off restores the original view
+and activation rules.
 
 **Mods > Widescreen > Enemy activation** offers two choices:
 
@@ -83,7 +90,8 @@ rules.
 - **Original Spawn Range** keeps the original camera's activation timing.
   Enemies can visibly appear inside the wider view when they enter that range.
 
-For a direct launch with Adaptive enabled:
+For a direct launch, pass the ROM and optionally a mode (`fit`, `16:9`,
+`21:9`, `32:9`, or `off` for the original view):
 
 ```text
 RKARecomp.exe rka.bin --no-launcher --widescreen fit
@@ -123,9 +131,11 @@ snapshot interval are configurable in the launcher. Existing
 
 ## Known issues
 
-This is an early release. v0.1.13 has been exercised across all 54 stage areas
-and tester-provided saves from all seven stages, with automated renderer and
-Windows/Linux package checks. Some visual imperfections remain:
+Version 1.0 is the first stable release. It has been exercised across all
+54 stage areas, all 41 authored intro, stage, and ending area IDs in long
+assisted 32:9 routes, and tester-provided saves from all seven stages, with
+automated renderer and Windows/Linux package checks. Some visual
+imperfections remain:
 
 - A few arena and cutscene margins repeat or mirror background details,
   particularly in the later machine room and the Earth transition. Some boss
