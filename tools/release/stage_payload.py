@@ -39,7 +39,10 @@ def stage(build, dest, version):
         head = subprocess.check_output(["git", "-C", str(repo), "rev-parse", "HEAD"], text=True).strip()
         assert info[key] == head, f"Stale build: {key}"
     binary = build / ("RKARecomp.exe" if info["system"] == "Windows" else "RKARecomp")
-    assert f"Rocket Knight Adventures v{version}".encode() in binary.read_bytes(), "Missing binary version stamp"
+    image = binary.read_bytes()
+    assert (version + "\0").encode() in image, "Missing diagnostic version stamp"
+    assert b"Rocket Knight Adventures\0" in image, "Missing clean game name"
+    assert f"Rocket Knight Adventures v{version}".encode() not in image, "Version badge in game name"
     dest.mkdir(parents=True, exist_ok=True)
     shutil.copy2(ROOT / "release/README.txt", dest / "README.txt")
     shutil.copy2(ROOT / "LICENSE.md", dest / "LICENSE")

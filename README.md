@@ -11,8 +11,8 @@ save-state browser.
 Version 1.0 is the first stable release: adaptive widescreen covers all seven
 stages and is on by default.
 
-**[Download v1.0.0](https://github.com/mstan/RocketKnightAdventuresRecomp/releases/tag/v1.0.0)**
-· [Release notes](release/v1.0.0.md)
+**[Download v1.0.1](https://github.com/mstan/RocketKnightAdventuresRecomp/releases/tag/v1.0.1)**
+· [Release notes](release/v1.0.1.md)
 · [Report a bug](https://github.com/mstan/RocketKnightAdventuresRecomp/issues)
 
 You must supply your own **Rocket Knight Adventures (USA)** ROM. The source

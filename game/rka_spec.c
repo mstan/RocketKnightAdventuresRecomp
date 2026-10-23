@@ -57,7 +57,7 @@ const GameSpec g_game_spec = {
     .netplay_config_image    = rka_config_image,
     .netplay_config_adopt    = rka_config_adopt,
     .instruction_hook       = rka_instruction_hook,
-    .display_name           = "Rocket Knight Adventures v" RKA_BUILD_VERSION,
+    .display_name           = "Rocket Knight Adventures",
     .short_name             = "RKA",
 
     /* Rocket Knight Adventures (USA), no-intro CRC32 A6EFEC47. Regional
