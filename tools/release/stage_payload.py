@@ -48,6 +48,10 @@ def stage(build, dest, version):
     shutil.copy2(ROOT / "LICENSE.md", dest / "LICENSE")
     shutil.copy2(ROOT / "segagenesisrecomp/THIRD-PARTY-LICENSES.md", dest)
     shutil.copy2(build / "build-info.json", dest)
+    (dest / "docs").mkdir(exist_ok=True)
+    (dest / "tools").mkdir(exist_ok=True)
+    shutil.copy2(ROOT / "segagenesisrecomp/docs/PLAYER_FEEDBACK.md", dest / "docs/PLAYER_FEEDBACK.md")
+    shutil.copy2(ROOT / "segagenesisrecomp/tools/replay_diagnostic.py", dest / "tools/replay_diagnostic.py")
     assets = build / "assets"
     assert (assets / "fonts/LatoLatin-Regular.ttf").is_file(), "Missing launcher font"
     assert (assets / "img/boxart.tga").is_file(), "Missing RKA box art"
