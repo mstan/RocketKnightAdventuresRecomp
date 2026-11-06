@@ -46,6 +46,7 @@ def stage(build, dest, version):
     dest.mkdir(parents=True, exist_ok=True)
     shutil.copy2(ROOT / "release/README.txt", dest / "README.txt")
     shutil.copy2(ROOT / "LICENSE.md", dest / "LICENSE")
+    shutil.copy2(ROOT / "PERMISSIONS.md", dest / "PERMISSIONS.md")
     shutil.copy2(ROOT / "segagenesisrecomp/THIRD-PARTY-LICENSES.md", dest)
     shutil.copy2(build / "build-info.json", dest)
     (dest / "docs").mkdir(exist_ok=True)
