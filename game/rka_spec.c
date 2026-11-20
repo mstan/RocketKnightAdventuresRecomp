@@ -34,6 +34,15 @@ static void rka_call_vblank(void)      { recomp_call_addr(0x0003D4u); }
  * later (it won't fire during early boot). */
 static void rka_call_hblank(void)      { recomp_call_addr(0xFFFFE010u); }
 
+static uint32_t rka_save_resume_pc(uint8_t game_mode)
+{
+    (void)game_mode;
+    /* Reset masks interrupts until immediately before the idle self-branch.
+     * Leave an unfinished boot on the existing continuation path. Once
+     * reset is complete, VBlank drives both the title and gameplay. */
+    return (g_cpu.SR & 0x0700u) == 0 ? 0x0003D0u : 0u;
+}
+
 /* Cheats only adjust guest flags/RAM ahead of their instruction; the
  * renderer hooks may also replace a routine. */
 static int rka_instruction_hook(uint32_t pc)
@@ -80,9 +89,7 @@ const GameSpec g_game_spec = {
     .call_entry_point       = rka_call_entry_point,
     .call_vblank            = rka_call_vblank,
     .call_hblank            = rka_call_hblank,
-    .resume_main_loop_pc    = 0u,    /* main-loop PC unknown — dispatcher re-entry */
-    .save_resume_pc         = NULL,
-    .dispatch_main_loop_pc  = 0u,
+    .save_resume_pc         = rka_save_resume_pc,
     .call_periodic          = NULL,
 
     .on_post_reset          = rka_video_reset,
