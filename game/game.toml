@@ -43,14 +43,14 @@ discovery_files = ["rka_floor_sweep.discovery.toml", "rka_stage1_newrun.discover
 
 # ---------------------------------------------------------------------------
 # Per-game RAM layout. RKA is NOT Sonic, so the Sonic-shaped tracking fields
-# (game_mode / vint_routine / player_object) are UNKNOWN — left 0 (cosmetic;
-# only feed boot_smoke / telemetry, per the load-bearing audit). The
-# LOAD-BEARING stack fields use RKA's actual reset SSP $FFFFFF00 (the entry
+# (vint_routine / player_object) are unknown and left 0. Game mode is the
+# low byte of the word at $FFB002. The load-bearing stack fields use RKA's
+# actual reset SSP $FFFFFF00 (the entry
 # relies on it). plc_pending = 0 (RKA has no Sonic PLC system). Refine the
 # cosmetic addrs later from the V-int code at $0003D4.
 # ---------------------------------------------------------------------------
 [ram_layout]
-game_mode      = 0x000000     # unknown (cosmetic) — refine from disasm
+game_mode      = 0xFFB003    # low byte; enables the title's save-resume selector
 vint_runcount  = 0x000000     # unknown (divergence-diff sync only) — refine
 vint_routine   = 0x000000     # unknown (yield-gate tracing) — refine
 plc_pending    = 0x000000     # RKA has no PLC system
@@ -70,6 +70,10 @@ extra = [0x000208, 0x0003D4]
 # Registered after heuristic discovery reaches its fixed point; see
 # GameConfig.late_extra_funcs. $FFB1F2 is RAM code and intentionally absent.
 late_extra = [
+  # The reset routine ends in a self-branch here. Gameplay, including the
+  # title screen, runs in the VBlank interrupt after reset has completed.
+  # Expose the idle loop so file loads can recreate the native continuation.
+  0x0003D0,
   0x005F1A, 0x005F2E, 0x005F42,
   0x003EFE, 0x003F1C, 0x003F40, 0x003F62, 0x003F6C, 0x003FB0, 0x003FB8,
   0x00883C, 0x0088F8, 0x008992,
